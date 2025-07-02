@@ -1,9 +1,26 @@
 """
 Routines used in TRAP
 
+The TRAP parameter system has been modernized with dataclass-based configuration.
+For new code, use the TrapConfig classes instead of the legacy Reduction_parameters:
+
+    # Recommended modern approach:
+    from trap.parameters import trap_config_for_ifs, TrapConfig
+    
+    config = trap_config_for_ifs()
+    reduction_params = config.get_reduction_parameters()
+
+The legacy Reduction_parameters class is still available but deprecated.
+
 @author: Matthias Samland
          MPIA Heidelberg
 """
+
+from __future__ import annotations
+
+import warnings
+from dataclasses import asdict, dataclass, field, replace
+from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
 from astropy import units as u
@@ -82,14 +99,25 @@ class Instrument(object):
 
     def compute_fwhm(self):
         if self.wavelengths is not None:
-            angle = (self.wavelengths / self.telescope_diameter).to(
-                u.mas, equivalencies=u.dimensionless_angles())
-            self.fwhm = angle.to(u.pixel, self.pixel_scale)
+            # Convert wavelength/diameter ratio to angular units
+            angle = (self.wavelengths / self.telescope_diameter)
+            # Convert to pixel scale - this should use the instrument's pixel scale equivalency
+            self.fwhm = angle.to(u.dimensionless_unscaled, self.pixel_scale)
 
 
 class Reduction_parameters(object):
     """Contains all reduction parameters describing the settings
        for TRAP.
+
+    .. deprecated:: 
+        This class is deprecated. Use :class:`TrapConfig` and 
+        :class:`TrapReductionConfig` instead for a more modern, 
+        type-safe configuration interface.
+
+    For new code, use::
+
+        config = trap_config_for_ifs()  # or default_trap_config()
+        reduction_params = config.get_reduction_parameters()
 
     Parameters
     ----------
@@ -437,6 +465,16 @@ class Reduction_parameters(object):
             return_input_data=False,
             verbose=False):
 
+        # Issue deprecation warning for legacy constructor
+        warnings.warn(
+            "The Reduction_parameters constructor is deprecated. "
+            "Please use the new TrapConfig and TrapReductionConfig classes instead. "
+            "Example: config = trap_config_for_ifs() or config = TrapConfig(). "
+            "The legacy constructor will be removed in a future version.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+
         self.search_region = search_region
         self.search_region_inner_bound = search_region_inner_bound
         self.search_region_outer_bound = search_region_outer_bound
@@ -508,3 +546,278 @@ class Reduction_parameters(object):
         self.return_input_data = return_input_data
         self.plot_all_diagnostics = plot_all_diagnostics
         self.verbose = verbose
+
+
+# ============================================================================
+# NEW DATACLASS-BASED CONFIGURATION SYSTEM (PREFERRED)
+# ============================================================================
+
+# -------- helpers -----------------------------------------------------------
+
+def _to_dict(maybe_dataclass) -> Dict[str, Any]:
+    """Accept either a mapping or one of the *Config dataclasses."""
+    if isinstance(maybe_dataclass, dict):
+        return maybe_dataclass          # already a dict
+    return asdict(maybe_dataclass)       # unwrap dataclass
+
+
+# -------- stellar parameters ------------------------------------------------
+
+@dataclass(slots=True)
+class StellarParameters:
+    """Stellar parameters for host star used in TRAP template matching."""
+    teff: float = 12000.0      # Effective temperature [K]
+    logg: float = 4.0          # Surface gravity [log g]
+    feh: float = 0.0           # Metallicity [Fe/H]
+    radius: float = 65.0       # Stellar radius [R_sun]
+    distance: float = 30.0     # Distance [pc]
+
+    def merge(self, **kw) -> "StellarParameters":
+        """Return a copy with selected fields overridden."""
+        return replace(self, **kw)
+
+    def as_dict(self) -> Dict[str, float]:
+        """Convert to dictionary format expected by TRAP."""
+        return asdict(self)
+
+
+# -------- detection parameters ----------------------------------------------
+
+@dataclass(slots=True)
+class DetectionParameters:
+    """TRAP detection and characterization parameters."""
+    candidate_threshold: float = 4.75
+    detection_threshold: float = 5.0
+    use_spectral_correlation: bool = False
+    stellar_parameters: StellarParameters = field(default_factory=StellarParameters)
+
+    def merge(self, **kw) -> "DetectionParameters":
+        """Return a copy with selected fields overridden."""
+        return replace(self, **kw)
+
+
+# -------- reduction parameters wrapper --------------------------------------
+
+@dataclass(slots=True)
+class TrapReductionConfig:
+    """Configuration wrapper for TRAP Reduction_parameters.
+    
+    This dataclass provides a configuration interface for the TRAP Reduction_parameters
+    while maintaining compatibility with the existing TRAP package interface.
+    """
+    # Search region parameters
+    search_region: Optional[Any] = None  # Binary mask of relative position to search for planets
+    search_region_inner_bound: int = 1
+    search_region_outer_bound: int = 55
+    oversampling: int = 1
+    
+    # Data preprocessing
+    data_auto_crop: bool = True
+    data_crop_size: Optional[int] = None
+    right_handed: bool = True
+    include_noise: bool = False
+    
+    # Model selection
+    temporal_model: bool = True
+    temporal_plus_spatial_model: bool = False
+    second_stage_trap: bool = False
+    remove_model_from_spatial_training: bool = True
+    remove_bad_residuals_for_spatial_model: bool = True
+    spatial_model: bool = False
+    local_temporal_model: bool = False
+    local_spatial_model: bool = False
+    
+    # Angular and spatial parameters
+    protection_angle: float = 0.5
+    spatial_components_fraction: float = 0.3
+    spatial_components_fraction_after_trap: float = 0.1
+    highpass_filter: Optional[float] = None
+    
+    # Known companion parameters
+    remove_known_companions: bool = False
+    yx_known_companion_position: Optional[Tuple[float, float]] = None
+    known_companion_contrast: Optional[float] = None
+    
+    # Processing parameters
+    use_multiprocess: bool = False
+    ncpus: int = 1
+    prefix: str = ''
+    result_folder: str = './'
+    
+    # Injection and testing parameters
+    inject_fake: bool = False
+    true_position: Optional[Tuple[float, float]] = None
+    true_contrast: Optional[float] = None
+    read_injection_files: bool = False
+    injection_sigma: float = 5.0
+    reduce_single_position: bool = False
+    guess_position: Optional[Tuple[float, float]] = None
+    plot_all_diagnostics: bool = False
+    fit_planet: bool = True
+    
+    # PCA and regressor parameters
+    number_of_pca_regressors: int = 20
+    yx_anamorphism: Any = field(default_factory=lambda: np.array([1., 1.]))
+    pca_scaling: str = 'temp-median'
+    method_of_regressor_selection: Optional[str] = None
+    auxiliary_frame: Optional[Any] = None
+    variance_prior_scaling: float = 1.0
+    compute_inverse_once: bool = True
+    
+    # Mask parameters
+    autosize_masks_in_lambda_over_d: bool = True
+    reduction_mask_size_in_lambda_over_d: float = 2.1
+    signal_mask_size_in_lambda_over_d: float = 2.1
+    reduction_mask_psf_size: int = 21
+    signal_mask_psf_size: int = 21
+    threshold_pixel_by_contribution: float = 0.0
+    target_pix_mask_radius: Optional[float] = None
+    use_relative_position: bool = False
+    
+    # Regressor selection
+    annulus_width: int = 5
+    annulus_offset: float = 0.0
+    add_radial_regressors: bool = True
+    include_opposite_regressors: bool = True
+    
+    # Processing control
+    make_reconstructed_lightcurve: bool = True
+    compute_residual_correlation: bool = False
+    use_residual_correlation: bool = False
+    
+    # Contrast curve and normalization
+    contrast_curve: bool = True
+    contrast_curve_sigma: float = 5.0
+    normalization_width: int = 3
+    companion_mask_radius: int = 11
+    
+    # Output control
+    return_input_data: bool = False
+    verbose: bool = False
+
+    def merge(self, **kw) -> "TrapReductionConfig":
+        """Return a copy with selected fields overridden."""
+        return replace(self, **kw)
+
+    def to_reduction_parameters(self) -> "Reduction_parameters":
+        """Convert to TRAP Reduction_parameters instance."""
+        params_dict = asdict(self)
+        
+        # Filter out None values, but keep explicit None defaults where needed
+        filtered_params = {}
+        for k, v in params_dict.items():
+            if v is not None:
+                filtered_params[k] = v
+            elif k in ['search_region', 'data_crop_size', 'yx_known_companion_position', 
+                      'known_companion_contrast', 'true_position', 'true_contrast',
+                      'guess_position', 'method_of_regressor_selection', 'auxiliary_frame',
+                      'target_pix_mask_radius', 'highpass_filter']:
+                # These parameters should be explicitly None
+                filtered_params[k] = None
+        
+        return Reduction_parameters(**filtered_params)
+
+
+# -------- resources ---------------------------------------------------------
+
+@dataclass(slots=True)
+class TrapResources:
+    """Resource management for TRAP processing."""
+    ncpu_reduction: int = 1
+    ncpu_detection: int = 1
+
+    def apply(self, reduction_config: TrapReductionConfig):
+        """Apply resource settings to reduction configuration."""
+        reduction_config.ncpus = self.ncpu_reduction
+
+
+# -------- wavelength and processing parameters ------------------------------
+
+@dataclass(slots=True)
+class ProcessingParameters:
+    """TRAP processing parameters including wavelength selection."""
+    wavelength_indices: Optional[range] = range(1, 38)
+    temporal_components_fraction: list[float] = field(default_factory=lambda: [0.15])
+    overwrite_reduction: bool = False
+    overwrite_detection: bool = False
+    verbose: bool = False
+
+    def merge(self, **kw) -> "ProcessingParameters":
+        """Return a copy with selected fields overridden."""
+        return replace(self, **kw)
+
+
+# -------- master TRAP configuration -----------------------------------------
+
+@dataclass(slots=True)
+class TrapConfig:
+    """Master TRAP configuration containing all sub-configurations."""
+    reduction: TrapReductionConfig = field(default_factory=TrapReductionConfig)
+    detection: DetectionParameters = field(default_factory=DetectionParameters)
+    processing: ProcessingParameters = field(default_factory=ProcessingParameters)
+    resources: TrapResources = field(default_factory=TrapResources)
+
+    def as_plain_dicts(self):
+        """Return tuple of dictionaries for all sub-configurations."""
+        return (
+            asdict(self.reduction),
+            asdict(self.detection),
+            asdict(self.processing),
+        )
+
+    def apply_resources(self):
+        """Apply resource configuration to all sub-configs."""
+        self.resources.apply(self.reduction)
+
+    def get_reduction_parameters(self) -> "Reduction_parameters":
+        """Get TRAP Reduction_parameters instance with current configuration."""
+        return self.reduction.to_reduction_parameters()
+
+    def get_stellar_parameters(self) -> Dict[str, float]:
+        """Get stellar parameters as dictionary for TRAP template matching."""
+        return self.detection.stellar_parameters.as_dict()
+
+
+# -------- factory functions -------------------------------------------------
+
+def default_trap_config() -> TrapConfig:
+    """Create default TRAP configuration."""
+    return TrapConfig()
+
+
+def trap_config_for_ifs() -> TrapConfig:
+    """Create TRAP configuration optimized for IFS observations."""
+    config = TrapConfig()
+    
+    # Set IFS-specific wavelength range (skip first/last due to low S/N)
+    config.processing.wavelength_indices = range(1, 38)
+    
+    # IFS-specific reduction parameters
+    config.reduction.search_region_outer_bound = 81  # appropriate for IFS field
+    config.reduction.temporal_model = True
+    config.reduction.spatial_model = False  # temporal model typically sufficient for IFS
+    config.reduction.right_handed = False  # Common for many IFS instruments
+    config.reduction.search_region_inner_bound = 3  # Skip inner region
+    
+    return config
+
+
+def trap_config_for_beta_pic() -> TrapConfig:
+    """Create TRAP configuration optimized for Beta Pictoris observations."""
+    config = trap_config_for_ifs()
+    
+    # Beta Pic specific stellar parameters
+    config.detection.stellar_parameters = StellarParameters(
+        teff=8052.0,    # Beta Pic effective temperature
+        logg=4.15,      # Beta Pic surface gravity
+        feh=0.05,       # Beta Pic metallicity
+        radius=1.8,     # Beta Pic radius in solar radii
+        distance=19.44  # Beta Pic distance in pc
+    )
+    
+    return config
+
+
+# ============================================================================
+# LEGACY PARAMETER CLASSES (DEPRECATED)
+# ============================================================================
