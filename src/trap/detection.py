@@ -1317,7 +1317,12 @@ def summarize_2d_gauss_fit_result(result_dictionary):
 
 
 class DetectionAnalysis(object):
-    """Class for"""
+    """Class for analyzing TRAP detection results and candidate characterization.
+    
+    This class provides methods for reading TRAP reduction outputs, generating
+    contrast curves, finding and fitting candidates, and performing template 
+    matching analysis.
+    """
 
     def __init__(
         self,
@@ -1327,12 +1332,39 @@ class DetectionAnalysis(object):
         instrument=None,
         reduction_parameters=None,
     ):
-        """ """
+        """Initialize DetectionAnalysis object.
+        
+        Parameters
+        ----------
+        result_folder : str, optional
+            Path to folder containing TRAP reduction outputs.
+        detection_images : array_like, optional
+            Pre-loaded detection images.
+        wavelength_indices : array_like, optional
+            Wavelength indices for the analysis.
+        instrument : Instrument, optional
+            Instrument object containing observational parameters.
+        reduction_parameters : Reduction_parameters or TrapConfig, optional
+            Reduction parameters object. Can be either legacy Reduction_parameters
+            or modern TrapConfig object.
+        """
 
         self.detection_images = detection_images
         self.wavelength_indices = wavelength_indices
         self.instrument = instrument
-        self.reduction_parameters = reduction_parameters
+        
+        # Handle both legacy Reduction_parameters and modern TrapConfig
+        # Convert TrapConfig to legacy format for compatibility
+        if reduction_parameters is not None:
+            if hasattr(reduction_parameters, 'get_reduction_parameters'):
+                # This is a TrapConfig object, convert to legacy format
+                self.reduction_parameters = reduction_parameters.get_reduction_parameters()
+            else:
+                # This is already a Reduction_parameters object, use it as-is
+                self.reduction_parameters = reduction_parameters
+        else:
+            self.reduction_parameters = None
+            
         self.detected_signal_mask = None
         self.templates = OrderedDict()
         self.empirical_correlation = None
@@ -1350,6 +1382,28 @@ class DetectionAnalysis(object):
         reduction_parameters=None,
         instrument=None,
     ):
+        """Read TRAP reduction output files and set up detection analysis.
+        
+        Parameters
+        ----------
+        component_fraction : float
+            Component fraction used in the reduction.
+        result_folder : str, optional
+            Path to folder containing reduction outputs. If None, uses
+            self.reduction_parameters.result_folder.
+        reduction_type : str, optional
+            Type of reduction ("temporal", "spatial", "temporal_plus_spatial").
+            Default is "temporal".
+        correlated_residuals : bool, optional
+            Whether to read correlated residual outputs. Default is False.
+        read_parameters : bool, optional
+            Whether to read parameters from saved files. Default is True.
+        reduction_parameters : Reduction_parameters or TrapConfig, optional
+            Reduction parameters object. Can be either legacy Reduction_parameters
+            or modern TrapConfig. Only used if read_parameters=False.
+        instrument : Instrument, optional
+            Instrument object. Only used if read_parameters=False.
+        """
         if result_folder is None:
             self.result_folder = self.reduction_parameters.result_folder
         else:
@@ -1364,7 +1418,14 @@ class DetectionAnalysis(object):
             self.instrument = load_object(os.path.join(result_folder, "instrument.obj"))
         else:
             if reduction_parameters is not None and instrument is not None:
-                self.reduction_parameters = reduction_parameters
+                # Handle both legacy Reduction_parameters and modern TrapConfig
+                # Convert TrapConfig to legacy format for compatibility
+                if hasattr(reduction_parameters, 'get_reduction_parameters'):
+                    # This is a TrapConfig object, convert to legacy format
+                    self.reduction_parameters = reduction_parameters.get_reduction_parameters()
+                else:
+                    # This is already a Reduction_parameters object, use it as-is
+                    self.reduction_parameters = reduction_parameters
                 self.instrument = instrument
         self.instrument.compute_fwhm()
 

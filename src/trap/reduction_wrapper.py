@@ -1167,9 +1167,9 @@ def run_complete_reduction(
         An `~trap.parameters.Instrument` object containing parameters intrinsic
         to the instrument used, such as diameter, pixel scale,
         gain and read noise.
-    reduction_parameters : `~trap.parameters.Reduction_parameters`
-        A `~trap.parameters.Reduction_parameters` object all parameters
-        necessary for the TRAP pipeline.
+    reduction_parameters : `~trap.parameters.Reduction_parameters` or `~trap.parameters.TrapConfig`
+        A `~trap.parameters.Reduction_parameters` object or `~trap.parameters.TrapConfig`
+        object containing all parameters necessary for the TRAP pipeline.
     temporal_components_fraction : array_like
         List containing the principal component fraction to be used for
         the temporal TRAP analysis. If more than one number is given
@@ -1220,6 +1220,13 @@ def run_complete_reduction(
         Otherwise, the return value is None.
 
     """
+
+    # Handle both legacy Reduction_parameters and modern TrapConfig
+    # Convert TrapConfig to legacy format for compatibility
+    if hasattr(reduction_parameters, 'get_reduction_parameters'):
+        # This is a TrapConfig object, convert to legacy format
+        reduction_parameters = reduction_parameters.get_reduction_parameters()
+    # If it's already a Reduction_parameters object, use it as-is
 
     if bad_frames is None:
         bad_frames = []
