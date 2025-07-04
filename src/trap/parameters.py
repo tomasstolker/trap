@@ -461,7 +461,7 @@ class Reduction_parameters(object):
             contrast_curve=True,
             contrast_curve_sigma=5.,
             normalization_width=3,
-            companion_mask_radius=11,
+            companion_mask_radius=13,
             return_input_data=False,
             verbose=False):
 
@@ -566,7 +566,7 @@ def _to_dict(maybe_dataclass) -> Dict[str, Any]:
 @dataclass(slots=True)
 class StellarParameters:
     """Stellar parameters for host star used in TRAP template matching."""
-    teff: float = 12000.0      # Effective temperature [K]
+    teff: float = 8000.0      # Effective temperature [K]
     logg: float = 4.0          # Surface gravity [log g]
     feh: float = 0.0           # Metallicity [Fe/H]
     radius: float = 65.0       # Stellar radius [R_sun]
@@ -590,6 +590,12 @@ class DetectionParameters:
     detection_threshold: float = 5.0
     use_spectral_correlation: bool = False
     stellar_parameters: StellarParameters = field(default_factory=StellarParameters)
+    search_radius: int = 11
+    inner_mask_radius: int = 1
+    good_fraction_threshold: float = 0.05
+    theta_deviation_threshold: float = 25.0
+    yx_fwhm_ratio_threshold: Tuple[float, float] = (1.1, 4.5)
+    save_initial_detection_products: bool = True
 
     def merge(self, **kw) -> "DetectionParameters":
         """Return a copy with selected fields overridden."""
@@ -639,8 +645,8 @@ class TrapReductionConfig:
     known_companion_contrast: Optional[float] = None
     
     # Processing parameters
-    use_multiprocess: bool = False
-    ncpus: int = 1
+    use_multiprocess: bool = True
+    ncpus: int = 4
     prefix: str = ''
     result_folder: str = './'
     
@@ -666,7 +672,7 @@ class TrapReductionConfig:
     
     # Mask parameters
     autosize_masks_in_lambda_over_d: bool = True
-    reduction_mask_size_in_lambda_over_d: float = 2.1
+    reduction_mask_size_in_lambda_over_d: float = 1.1
     signal_mask_size_in_lambda_over_d: float = 2.1
     reduction_mask_psf_size: int = 21
     signal_mask_psf_size: int = 21
@@ -675,7 +681,7 @@ class TrapReductionConfig:
     use_relative_position: bool = False
     
     # Regressor selection
-    annulus_width: int = 5
+    annulus_width: int = 7
     annulus_offset: float = 0.0
     add_radial_regressors: bool = True
     include_opposite_regressors: bool = True
@@ -738,8 +744,8 @@ class ProcessingParameters:
     """TRAP processing parameters including wavelength selection."""
     wavelength_indices: Optional[range] = range(1, 38)
     temporal_components_fraction: list[float] = field(default_factory=lambda: [0.15])
-    overwrite_reduction: bool = False
-    overwrite_detection: bool = False
+    overwrite_reduction: bool = True
+    overwrite_detection: bool = True
     verbose: bool = False
 
     def merge(self, **kw) -> "ProcessingParameters":

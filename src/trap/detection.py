@@ -198,7 +198,7 @@ def make_contrast_curve(
     detection_image,
     radial_bounds=None,
     bin_width=3.0,
-    companion_mask_radius=9,
+    companion_mask_radius=11,
     pixel_scale=12.25,
     yx_known_companion_position=None,
     mask_above_sigma=None,
@@ -1024,7 +1024,7 @@ def plot_distribution(
     radial_bounds=None,
     plot_type="qqplot",
     sigma=5,
-    companion_mask_radius=10,
+    companion_mask_radius=11,
     pixel_scale=12.25,
     yx_known_companion_position=None,
 ):
@@ -1186,31 +1186,6 @@ def fit_planet_parameters(
     fix_orientation=True,
     plot=False,
 ):
-    # yx_dim = (detection_image.shape[-2], detection_image.shape[-1])
-    # yx_center = (yx_dim[0] // 2, yx_dim[1] // 2)
-
-    # yx_known_companion_position = [-35.95, -8.43]
-    # companion_mask_radius = 15
-    # if yx_known_companion_position is not None:
-    #     detected_signal_mask = make_signal_mask(
-    #         yx_dim, yx_known_companion_position, companion_mask_radius,
-    #         relative_pos=True, yx_center=None)
-    #
-    # profile, values = make_radial_profile(
-    #     detection_image[0], bin_width=1,
-    #     radial_bounds=radial_bounds,
-    #     known_companion_mask=detected_signal_mask,
-    #     operation='median')
-    # detection_image[0] = detection_image[0] - profile
-    # fit_snr, model_snr, stamp_snr, yx_pos_absolute_snr, yx_pos_relative_snr = fit_2d_gaussian(
-    # normalized_detection_image, yx_position=yx_position, box_size=box_size)
-
-    # if iterate:
-    #     yx_position = np.round(np.array(yx_pos_absolute_snr)).astype('int')
-    #     fit_snr, model_snr, stamp_snr, yx_pos_absolute_snr, yx_pos_relative_snr = fit_2d_gaussian(
-    #         normalized_detection_image, yx_position=yx_position, box_size=box_size)
-
-    # xy_in_stamp = (fit_snr.x_mean.value, fit_snr.y_mean.value)
 
     contrast_image_parameters = fit_2d_gaussian(
         detection_image[0],
@@ -1678,7 +1653,7 @@ class DetectionAnalysis(object):
         return fig
 
     def mask_companions_in_detection(
-        self, yx_known_companion_position=None, mask_radius=None
+        self, yx_known_companion_position=None, companion_mask_radius=None
     ):
         yx_dim = (self.detection_cube.shape[-2], self.detection_cube.shape[-1])
 
@@ -1687,8 +1662,8 @@ class DetectionAnalysis(object):
                 self.reduction_parameters.yx_known_companion_position
             )
 
-        if mask_radius is None:
-            mask_radius = self.reduction_parameters.companion_mask_radius
+        if companion_mask_radius is None:
+            companion_mask_radius = self.reduction_parameters.companion_mask_radius
 
         if yx_known_companion_position is not None:
             yx_known_companion_position = np.array(yx_known_companion_position)
@@ -1696,7 +1671,7 @@ class DetectionAnalysis(object):
                 self.detected_signal_mask = regressor_selection.make_signal_mask(
                     yx_dim,
                     yx_known_companion_position,
-                    mask_radius,
+                    companion_mask_radius,
                     relative_pos=True,
                     yx_center=None,
                 )
@@ -1707,7 +1682,7 @@ class DetectionAnalysis(object):
                         regressor_selection.make_signal_mask(
                             yx_dim,
                             yx_pos,
-                            mask_radius,
+                            companion_mask_radius,
                             relative_pos=True,
                             yx_center=None,
                         )
@@ -1801,7 +1776,7 @@ class DetectionAnalysis(object):
         self.empirical_correlation = empirical_correlation
 
     def find_approximate_candidate_positions(
-        self, snr_image, candidate_threshold=4.75, mask_radius=9
+        self, snr_image, candidate_threshold=4.75, mask_radius=11
     ):
         snr_image = np.ma.masked_array(snr_image)
 
@@ -1861,7 +1836,7 @@ class DetectionAnalysis(object):
         self,
         detection_product_index=0,
         candidate_threshold=3.5,
-        mask_radius=9,
+        iterative_search_exclusion_radius=11,
         detection_products=None,
     ):
         if detection_products is None:
@@ -1886,35 +1861,13 @@ class DetectionAnalysis(object):
         candidates = self.find_approximate_candidate_positions(
             detection_products["normalized_detection_cube"][detection_product_index],
             candidate_threshold=candidate_threshold,
-            mask_radius=mask_radius,
+            mask_radius=iterative_search_exclusion_radius,
         )
 
         # Exclude "detections" very close to the IWA of the reduction
         mask_too_close = candidates["separation"] < smallest_separation_in_pixel
         candidates = candidates[~mask_too_close]
 
-        # if len(candidates) > 0:
-        #     yx_known_companion_position = candidates[['y_relative', 'x_relative']].values
-        #     self.reduction_parameters.yx_known_companion_position = yx_known_companion_position
-        #     detection_products = self.contrast_table_and_normalization(save=False, inplace=False)
-        #
-        #     candidates = self.find_approximate_candidate_positions(
-        #         detection_products['normalized_detection_cube'][detection_product_index],
-        #         detection_threshold=detection_threshold, mask_radius=mask_radius)
-        #     mask_too_close = candidates['separation'] < smallest_separation_in_pixel + 2
-        #     candidates = candidates[~mask_too_close]
-        #     yx_known_companion_position2 = candidates[['y_relative', 'x_relative']].values
-        #     if len(candidates) > 0 and not np.all(yx_known_companion_position == yx_known_companion_position2):
-        #         self.reduction_parameters.yx_known_companion_position = yx_known_companion_position2
-        #         # self.mask_companions_in_detection()
-        #         detection_products = self.contrast_table_and_normalization(
-        #             save=False, inplace=False)
-        #     self.contrast_table_and_normalization(save=True)
-        #
-        #         candidates = self.find_approximate_candidate_positions(
-        #             detection_products['normalized_detection_cube'][detection_product_index],
-        #             detection_threshold=candidate_threshold, mask_radius=mask_radius)
-        #         mask_too_close = candidates['separation'] < smallest_separation_in_pixel + 2
         candidates = candidates[~mask_too_close].sort_values(
             "separation", ignore_index=False
         )
@@ -2177,7 +2130,7 @@ class DetectionAnalysis(object):
         detection_products=None,
         wavelength_indices=None,
         candidate_threshold=4.0,
-        search_radius=5,
+        search_radius=11,
         mask_deviating=False,
     ):
         if detection_cube is None:
@@ -3173,20 +3126,6 @@ class DetectionAnalysis(object):
             candidate_threshold=candidate_threshold,
         )
 
-        # if self.reduction_parameters.yx_known_companion_position is not None:
-        #     self.reduction_parameters.yx_known_companion_position = np.vstack(
-        #         [self.reduction_parameters.yx_known_companion_position,
-        #          yx_position_relative])
-        # else:
-        #     self.reduction_parameters.yx_known_companion_position = np.expand_dims(
-        #         yx_position_relative, axis=0)
-
-        # _, candidates_fit_all_indices = analysis.complete_candidate_table(
-        #     candidates=candidates,
-        #     detection_cube=None, detection_products=None,
-        #     wavelength_indices=None, detection_threshold=detection_threshold,
-        #     candidate_threshold=candidate_threshold, search_radius=5)
-
         _, candidates_fit_template = self.complete_candidate_table(
             candidates=candidates,
             detection_cube=detection_cube,
@@ -3197,28 +3136,14 @@ class DetectionAnalysis(object):
             mask_deviating=mask_deviating,
         )
 
-        # fig = analysis.contrast_plot(detection_products=detection_products_matched,
-        #                              companion_table=None,
-        #                              plot_companions=False, savefig=False, show=True)
-
         if candidates is None or len(candidates) == 0:
             template.companion_table = None
             template.validated_companion_table = None
             template.validated_companion_table_short = None
         else:
-            # companion_table, validated_companion_table = analysis.detection_summary(
-            #     candidates=candidates, candidates_fit=candidates_fit_template, candidate_spectra=None, use_spectra=False,
-            #     template_name=template_name, snr_threshold_spectrum=False,
-            #     snr_threshold=5., good_fraction_threshold=0.25,
-            #     theta_deviation_threshold=25.,
-            #     yx_fwhm_ratio_threshold=[1.1, 4.5])
-
-            # mask = candidates['snr'] > detection_threshold
             yx_known_companion_position = candidates_fit_template["snr_image"][
                 ["y_relative", "x_relative"]
             ].values  # [mask]
-            # yx_known_companion_position = np.unique(
-            #     validated_companion_table[['y_relative', 'x_relative']].values, axis=0)
 
             # Masking out detections
             detection_products_matched = self.contrast_table_and_normalization(
@@ -3362,11 +3287,6 @@ class DetectionAnalysis(object):
             )
             plt.close()
 
-            # analysis.contrast_table_and_normalization(save=False)
-            # _ = analysis.contrast_plot(
-            #     savefig=False, plot_companions=plot_companions,
-            #     companion_table=validated_companion_table, show=True)
-
             _ = self.contrast_plot(
                 detection_products=detection_products,
                 companion_table=validated_companion_table,
@@ -3395,7 +3315,7 @@ class DetectionAnalysis(object):
         detection_threshold=5.0,
         candidate_threshold=4.75,
         inner_mask_radius=1,
-        search_radius=5,
+        search_radius=11,
         good_fraction_threshold=0.05,
         theta_deviation_threshold=25,
         yx_fwhm_ratio_threshold=[1.1, 4.5],
@@ -3490,7 +3410,7 @@ class DetectionAnalysis(object):
             show=False,
         )
 
-    def combine_template_matched_companion_tables(self, validated_only=True):
+    def combine_template_matched_companion_tables(self, search_radius=11, validated_only=True):
         """
         Combines the template-matched companion tables into a single table.
 
@@ -3535,7 +3455,6 @@ class DetectionAnalysis(object):
                 )
                 pos2 = combined_companion_table.iloc[unique_indices][["x_relative", "y_relative"]].values
                 dist = linalg.norm(pos1 - pos2, axis=1)
-                search_radius = 5
                 mask = dist < search_radius
                 if np.sum(mask) == 1:
                     unique_candidate_indices.append(idx)
@@ -3648,7 +3567,7 @@ class DetectionAnalysis(object):
         amplitude_modulation_full=None,
         candidate_threshold=4.75,
         detection_threshold=5.0,
-        search_radius=5,
+        search_radius=11,
         good_fraction_threshold=0.05,
         theta_deviation_threshold=25,
         yx_fwhm_ratio_threshold=[1.1, 4.5],
@@ -3813,7 +3732,7 @@ class DetectionAnalysis(object):
         amplitude_modulation_full=None, 
         detection_threshold=5., candidate_threshold=4.75,
         use_spectral_correlation=False,
-        inner_mask_radius=1, search_radius=5, good_fraction_threshold=0.05,
+        inner_mask_radius=1, search_radius=11, good_fraction_threshold=0.05,
         theta_deviation_threshold=25, yx_fwhm_ratio_threshold=[1.1, 4.5],
         save_initial_detection_products=True):
 
@@ -3863,8 +3782,8 @@ class DetectionAnalysis(object):
         )
 
         self.plot_template_matched_contrasts()
-        self.combine_template_matched_companion_tables(validated_only=True)
-        self.combine_template_matched_companion_tables(validated_only=False)
+        self.combine_template_matched_companion_tables(search_radius=search_radius, validated_only=True)
+        self.combine_template_matched_companion_tables(search_radius=search_radius, validated_only=False)
 
         # spectrum = self.extract_candidate_spectra(
         #     temporal_components_fraction=temporal_components_fraction,
