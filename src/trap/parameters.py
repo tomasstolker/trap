@@ -804,6 +804,7 @@ def trap_config_for_ifs() -> TrapConfig:
     config.reduction.spatial_model = False  # temporal model typically sufficient for IFS
     config.reduction.right_handed = False  # Common for many IFS instruments
     config.reduction.search_region_inner_bound = 3  # Skip inner region
+    config.reduction.yx_anamorphism = [1.0062, 1.]
     
     return config
 
