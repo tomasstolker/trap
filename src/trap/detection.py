@@ -627,11 +627,11 @@ def plot_contrast_curve(
         xposition = xposition[mask]
         vert_labels = np.array(
             [
-                "$1 \lambda/D$",
-                "$2 \lambda/D$",
-                "$3 \lambda/D$",
-                "$5 \lambda/D$",
-                "$10 \lambda/D$",
+                r"$1 \lambda/D$",
+                r"$2 \lambda/D$",
+                r"$3 \lambda/D$",
+                r"$5 \lambda/D$",
+                r"$10 \lambda/D$",
             ]
         )[mask]
 
@@ -656,9 +656,9 @@ def plot_contrast_curve(
 
     ax0.set_xlabel("Separation (pixel)")
     if convert_to_mag:
-        ax0.set_ylabel("{}$\sigma$ contrast (mag)".format(sigma))
+        ax0.set_ylabel("{}$\\sigma$ contrast (mag)".format(sigma))
     else:
-        ax0.set_ylabel("{}$\sigma$ contrast".format(sigma))
+        ax0.set_ylabel("{}$\\sigma$ contrast".format(sigma))
 
     # set ticks visible, if using sharex = True. Not needed otherwise
     ax0.set_xlim(xmin, xmax + x_text_shift)
@@ -702,7 +702,7 @@ def plot_contrast_curve(
     # get left axis limits
     # xmin, xmax = ax0.get_xlim()
     if mirror_axis == "lod":
-        ax2.set_xlabel("Separation ($\lambda / D$)")
+        ax2.set_xlabel(r"Separation ($\lambda / D$)")
         ax2.set_xlim(
             (
                 sep_pix_to_lod(xmin * u.pixel, wavelengths[0], instrument),
@@ -721,7 +721,7 @@ def plot_contrast_curve(
 
     ax3 = ax0.twinx()
     ax3.set_ylim((contrast_to_magnitude(ymin), contrast_to_magnitude(ymax)))
-    ax3.set_ylabel("$\Delta \,$magnitude")
+    ax3.set_ylabel(r"$\Delta \,$magnitude")
     ax3.plot([], [])
     ax0.minorticks_on()
     ax2.minorticks_on()
@@ -863,11 +863,11 @@ def plot_contrast_curve_ratio(
         fwhm = instrument.fwhm[0]
         xposition = (np.array([1, 2, 3, 5, 10]) * fwhm).value
         vert_labels = [
-            "$1 \lambda/D$",
-            "$2 \lambda/D$",
-            "$3 \lambda/D$",
-            "$5 \lambda/D$",
-            "$10 \lambda/D$",
+            r"$1 \lambda/D$",
+            r"$2 \lambda/D$",
+            r"$3 \lambda/D$",
+            r"$5 \lambda/D$",
+            r"$10 \lambda/D$",
         ]
 
         # text_y = ymin
@@ -922,7 +922,7 @@ def plot_contrast_curve_ratio(
     # get left axis limits
     # xmin, xmax = ax0.get_xlim()
     if mirror_axis == "lod":
-        ax2.set_xlabel("Separation ($\lambda / D$)")
+        ax2.set_xlabel(r"Separation ($\lambda / D$)")
         ax2.set_xlim(
             (
                 sep_pix_to_lod(xmin * u.pixel, wavelengths[0], instrument),
@@ -1334,6 +1334,7 @@ class DetectionAnalysis(object):
             if hasattr(reduction_parameters, 'get_reduction_parameters'):
                 # This is a TrapConfig object, convert to legacy format
                 self.reduction_parameters = reduction_parameters.get_reduction_parameters()
+                print("Using TrapConfig, converted to legacy Reduction_parameters format.")
             else:
                 # This is already a Reduction_parameters object, use it as-is
                 self.reduction_parameters = reduction_parameters
@@ -2366,8 +2367,8 @@ class DetectionAnalysis(object):
         if wavelength_indices is None:
             wavelength_indices = self.wavelength_indices
 
-        re_reduction_parameters = copy.copy(self.reduction_parameters)
-        detection_products_orig = copy.copy(self.detection_products)
+        re_reduction_parameters = copy.deepcopy(self.reduction_parameters)
+        detection_products_orig = copy.deepcopy(self.detection_products)
 
         re_reduction_parameters.guess_position = yx_candidate_position
         re_reduction_parameters.use_multiprocess = False
