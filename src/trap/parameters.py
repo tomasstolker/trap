@@ -674,14 +674,14 @@ class TrapReductionConfig:
     autosize_masks_in_lambda_over_d: bool = True
     reduction_mask_size_in_lambda_over_d: float = 1.1
     signal_mask_size_in_lambda_over_d: float = 2.1
-    reduction_mask_psf_size: int = 21
+    reduction_mask_psf_size: int = 19
     signal_mask_psf_size: int = 21
     threshold_pixel_by_contribution: float = 0.0
     target_pix_mask_radius: Optional[float] = None
     use_relative_position: bool = False
     
     # Regressor selection
-    annulus_width: int = 7
+    annulus_width: int = 5
     annulus_offset: float = 0.0
     add_radial_regressors: bool = True
     include_opposite_regressors: bool = True
@@ -803,8 +803,8 @@ def trap_config_for_ifs() -> TrapConfig:
     config.reduction.temporal_model = True
     config.reduction.spatial_model = False  # temporal model typically sufficient for IFS
     config.reduction.right_handed = False  # Common for many IFS instruments
-    config.reduction.search_region_inner_bound = 3  # Skip inner region
-    config.reduction.yx_anamorphism = [1.0062, 1.]
+    config.reduction.search_region_inner_bound = 1  # Skip inner region
+    # config.reduction.yx_anamorphism = [1.0062, 1.]
     
     return config
 
