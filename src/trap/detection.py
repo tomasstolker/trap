@@ -1049,10 +1049,11 @@ def plot_distribution(
     mask = np.logical_and(annulus_mask, ~detected_signal_mask)
     if plot_type == "qqplot":
         _ = stats.probplot(detection_image[mask], dist="norm", plot=plt)
+        # QQ plot doesn't create labeled artists, so no legend needed
     elif plot_type == "distplot":
         import seaborn as sns
         sns.histplot(detection_image[mask], label="TRAP", kde=True, stat="density", linewidth=0)
-    plt.legend()
+        plt.legend()
     plt.show()
 
 
@@ -3280,7 +3281,9 @@ class DetectionAnalysis(object):
             plt.axhline(y=0, color="k", linestyle="--", alpha=0.5)
             plt.xlabel("wavelength")
             plt.ylabel("contrast")
-            plt.legend()
+            # Only add legend if there are labeled artists
+            if len(candidate_indices) > 0:
+                plt.legend()
             plt.savefig(
                 os.path.join(
                     output_dir_matching, f"companion_spectra_{template_name}.pdf"
@@ -3436,12 +3439,14 @@ class DetectionAnalysis(object):
                         f"{prefix}companion_table_{key}.csv",
                     )
                 companion_table = pd.read_csv(filename)
-                combined_detection_products.append(companion_table)
+                # Only add non-empty DataFrames
+                if not companion_table.empty:
+                    combined_detection_products.append(companion_table)
             except FileNotFoundError:
                 print(f"{filename} not found.")
 
-        if not all(v is None for v in combined_detection_products):
-            combined_companion_table = pd.concat(combined_detection_products)
+        if combined_detection_products:  # Check if list is not empty
+            combined_companion_table = pd.concat(combined_detection_products, ignore_index=True)
             unique_candidate_indices = []
             final_x_positions = []
             rejected = []
@@ -3705,7 +3710,9 @@ class DetectionAnalysis(object):
             plt.axhline(y=0, color="k", linestyle="--", alpha=0.5)
             plt.xlabel("wavelength")
             plt.ylabel("contrast")
-            plt.legend()
+            # Only add legend if there are labeled artists
+            if len(candidate_indices) > 0:
+                plt.legend()
             plt.savefig(
                 os.path.join(
                     self.reduction_parameters.result_folder, "companion_spectra.pdf"
