@@ -1254,14 +1254,14 @@ def run_complete_reduction(
         #     verbose=True)
 
     instrument.compute_fwhm()
-
+    
     if reduction_parameters.reduce_single_position:
         guess_position_separation = np.sqrt(
             reduction_parameters.guess_position[0] ** 2
             + reduction_parameters.guess_position[1] ** 2
         )
         print("Adjusting outer bound to fit guess position")
-        reduction_parameters.search_region_outer_bound = (
+        reduction_parameters.search_region_outer_bound = int(
             np.ceil(guess_position_separation) + 5
         )
 
@@ -1294,7 +1294,6 @@ def run_complete_reduction(
             "The provided PSF images are too small for the chosen parameters."
         )
     psf_stamps = prepare_psf(flux_psf_full, psf_size=stamp_sizes)
-
     # Remove bad frames
     if bad_frames is not None:
         data_full = np.delete(data_full, bad_frames, axis=1)
