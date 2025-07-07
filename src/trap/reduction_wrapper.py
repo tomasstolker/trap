@@ -800,7 +800,6 @@ def run_trap_search(
                         detection_image_corr[key][5][
                             search_coordinates[idx][0], search_coordinates[idx][1]
                         ] = result[key].correlation_info["corr_length_matern52"]
-                        # ipsh()
                         correlation_matrix_binned[key][
                             :, search_coordinates[idx][0], search_coordinates[idx][1]
                         ] = (
