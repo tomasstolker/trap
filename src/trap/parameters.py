@@ -109,9 +109,12 @@ class Instrument(object):
             self.fwhm = None
             return
 
+        ratio = (self.wavelengths / self.telescope_diameter).to(
+            u.dimensionless_unscaled
+        )
         # 1.029 λ/D in **radians**
         # full width at half maximum of an Airy PSF rather than the first-null diameter (1.22 λ/D)
-        airy_fwhm = 1.029 * (self.wavelengths / self.telescope_diameter) * u.rad
+        airy_fwhm = 1.029 * ratio * u.rad
 
         # convert angle → pixels
         # choose .to(...) if you want a Quantity with unit pix,
