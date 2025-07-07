@@ -1479,8 +1479,8 @@ def run_complete_reduction(
 
     # Save parameters
     if not reduction_parameters.reduce_single_position:
-        save_object(os.path.join(result_folder, "instrument.obj"))
-        save_object(os.path.join(result_folder, "reduction_parameters.obj"))
+        save_object(instrument, os.path.join(result_folder, "instrument.obj"))
+        save_object(reduction_parameters, os.path.join(result_folder, "reduction_parameters.obj"))
 
     assert (
         flux_psf_full.shape[0] == data_full.shape[0] == len(instrument.wavelengths)
