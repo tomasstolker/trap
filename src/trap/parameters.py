@@ -277,13 +277,13 @@ class Reduction_parameters(object):
         size of PSF stamp used to create reduction area in resolution
         elements. Will automatically adjust size based on instrument-object
         and wavelength used. Has to be smaller than
-        `signal_mask_size_in_lambda_over_d`. Default is 1.1.
+        `signal_mask_size_in_lambda_over_d`. Default is 1.
     signal_mask_size_in_lambda_over_d : scalar
         If `autosize_masks_in_lambda_over_d` is True, gives
         size of PSF stamp used to create signal exclusion area in resolution
         elements. Will automatically adjust size based on instrument-object
         and wavelength used. Has to be larger than
-        `reduction_mask_size_in_lambda_over_d`. Default is 2.1.
+        `reduction_mask_size_in_lambda_over_d`. Default is 2.
     reduction_mask_psf_size : scalar
         Size of PSF stamp used to create reduction area in resolution
         elements in pixel. Has to be smaller than `signal_mask_size`.
@@ -465,8 +465,8 @@ class Reduction_parameters(object):
             variance_prior_scaling=1.,
             compute_inverse_once=True,
             autosize_masks_in_lambda_over_d=True,
-            reduction_mask_size_in_lambda_over_d=2.1,
-            signal_mask_size_in_lambda_over_d=2.1,
+            reduction_mask_size_in_lambda_over_d=2.,
+            signal_mask_size_in_lambda_over_d=2.,
             reduction_mask_psf_size=21,
             signal_mask_psf_size=21,
             threshold_pixel_by_contribution=0.,
@@ -744,8 +744,8 @@ class TrapReductionConfig:
     
     # Mask parameters
     autosize_masks_in_lambda_over_d: bool = True
-    reduction_mask_size_in_lambda_over_d: float = 2.1
-    signal_mask_size_in_lambda_over_d: float = 2.1
+    reduction_mask_size_in_lambda_over_d: float = 2.
+    signal_mask_size_in_lambda_over_d: float = 2.
     reduction_mask_psf_size: int = 19
     signal_mask_psf_size: int = 21
     threshold_pixel_by_contribution: float = 0.0
