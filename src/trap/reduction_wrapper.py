@@ -9,7 +9,6 @@ import datetime
 import logging
 import multiprocessing
 import os
-import pickle
 from collections import OrderedDict
 from copy import copy
 
@@ -33,6 +32,7 @@ from trap.utils import (
     prepare_psf,
     round_up_to_odd,
     shuffle_and_equalize_relative_positions,
+    save_object,
 )
 
 logging.getLogger("ray").setLevel(logging.WARNING)
@@ -1479,12 +1479,8 @@ def run_complete_reduction(
 
     # Save parameters
     if not reduction_parameters.reduce_single_position:
-        with open(os.path.join(result_folder, "instrument.obj"), "wb") as handle:
-            pickle.dump(instrument, handle, protocol=4)
-        with open(
-            os.path.join(result_folder, "reduction_parameters.obj"), "wb"
-        ) as handle:
-            pickle.dump(reduction_parameters, handle, protocol=4)
+        save_object(os.path.join(result_folder, "instrument.obj"))
+        save_object(os.path.join(result_folder, "reduction_parameters.obj"))
 
     assert (
         flux_psf_full.shape[0] == data_full.shape[0] == len(instrument.wavelengths)

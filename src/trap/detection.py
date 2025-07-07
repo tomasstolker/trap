@@ -1112,12 +1112,6 @@ def fit_2d_gaussian(
     fitter = fitting.LevMarLSQFitter()
     par = fitter(g_init, xx[finite_mask], yy[finite_mask], cutout.data[finite_mask])
     model = par(xx, yy)
-    # import matplotlib
-    # matplotlib.use('MacOSX')
-
-    # import matplotlib.pyplot as plt
-
-    # ipsh()
 
     if plot:
         plt.imshow(cutout.data, origin="lower")
@@ -1361,6 +1355,7 @@ class DetectionAnalysis(object):
         reduction_type="temporal",
         correlated_residuals=False,
         read_parameters=True,
+        read_instrument=True,
         reduction_parameters=None,
         instrument=None,
     ):
@@ -1394,10 +1389,11 @@ class DetectionAnalysis(object):
         self.component_fraction = component_fraction
         self.correlated_residuals = correlated_residuals
         self.reduction_type = reduction_type
+        if read_instrument:
+            self.instrument = load_object(os.path.join(result_folder, "instrument.obj"))
 
         if read_parameters:
             self.reduction_parameters = load_object(os.path.join(result_folder, "reduction_parameters.obj"))
-            self.instrument = load_object(os.path.join(result_folder, "instrument.obj"))
         else:
             if reduction_parameters is not None and instrument is not None:
                 # Handle both legacy Reduction_parameters and modern TrapConfig
@@ -2261,7 +2257,7 @@ class DetectionAnalysis(object):
             detection_products=detection_products,
             plot=False,
         )
-        ipsh()
+        
         unique_candidate_indices = []
         rejected = []
         final_position_table = []
@@ -2479,7 +2475,6 @@ class DetectionAnalysis(object):
         # To avoid manipulating data in place (multiple injections)
         # Set remove_known_companions to False
         re_reduction_parameters.remove_known_companions = False
-        ipsh()
         all_results = run_complete_reduction(
             data_full=data_full.copy(),
             flux_psf_full=flux_psf_full.copy(),
@@ -2495,7 +2490,7 @@ class DetectionAnalysis(object):
             amplitude_modulation_full=amplitude_modulation_full,
             verbose=verbose,
         )
-        ipsh()
+        
         if return_all_results:
             return all_results
 
@@ -2772,7 +2767,6 @@ class DetectionAnalysis(object):
 
         for candidate_index, yx_candidate_position in tqdm(enumerate(yx_candidate_positions)):
             print("Running TRAP at candidate position: ", yx_candidate_position)
-            # ipsh()
             candidate_spectrum = self.rereduce_single_position(
                 candidate_index=candidate_index,
                 yx_candidate_position=yx_candidate_position,
