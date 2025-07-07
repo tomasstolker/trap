@@ -98,11 +98,25 @@ class Instrument(object):
             self.compute_fwhm()
 
     def compute_fwhm(self):
-        if self.wavelengths is not None:
-            # Convert wavelength/diameter ratio to angular units
-            angle = (self.wavelengths / self.telescope_diameter)
-            # Convert to pixel scale - this should use the instrument's pixel scale equivalency
-            self.fwhm = angle.to(u.dimensionless_unscaled, self.pixel_scale)
+        """
+        Diffraction-limited FWHM in detector pixels.
+        Assumes:
+        * self.wavelengths  –  Quantity, e.g. µm
+        * self.telescope_diameter – Quantity, e.g. m
+        * self.pixel_scale  –  u.pixel_scale(<angle/pix>) equivalency
+        """
+        if self.wavelengths is None:
+            self.fwhm = None
+            return
+
+        # 1.029 λ/D in **radians**
+        # full width at half maximum of an Airy PSF rather than the first-null diameter (1.22 λ/D)
+        airy_fwhm = 1.029 * (self.wavelengths / self.telescope_diameter) * u.rad
+
+        # convert angle → pixels
+        # choose .to(...) if you want a Quantity with unit pix,
+        # or .to_value(...) to keep only the number.
+        self.fwhm = airy_fwhm.to(u.pix, equivalencies=self.pixel_scale)
 
 
 class Reduction_parameters(object):
@@ -561,6 +575,61 @@ def _to_dict(maybe_dataclass) -> Dict[str, Any]:
     return asdict(maybe_dataclass)       # unwrap dataclass
 
 
+# -------- instrument configuration ------------------------------------------
+
+@dataclass(slots=True)
+class InstrumentConfig:
+    """Configuration for TRAP instrument parameters."""
+    name: str = "IFS"
+    pixel_scale_arcsec_per_pixel: float = 0.00746
+    telescope_diameter_m: float = 7.99
+    detector_gain: float = 1.0
+    readnoise: float = 0.0
+    instrument_type: str = "ifu"
+    spectral_resolution_yj: int = 55
+    spectral_resolution_h: int = 35
+    
+    def merge(self, **kw) -> "InstrumentConfig":
+        """Return a copy with selected fields overridden."""
+        return replace(self, **kw)
+    
+    def to_instrument(self, obs_mode: str, wavelengths=None) -> Instrument:
+        """Create Instrument instance from configuration.
+        
+        Parameters
+        ----------
+        obs_mode : str
+            Observation mode, either 'OBS_YJ' or 'OBS_H'
+        wavelengths : astropy.units.Quantity, optional
+            Wavelength array. If None, will be set to None in the Instrument.
+            
+        Returns
+        -------
+        Instrument
+            TRAP Instrument instance configured with the parameters.
+        """
+        # Determine spectral resolution based on observation mode
+        if obs_mode == 'OBS_YJ':
+            spectral_resolution = self.spectral_resolution_yj
+        elif obs_mode == 'OBS_H':
+            spectral_resolution = self.spectral_resolution_h
+        else:
+            raise ValueError(f"Unsupported observation mode: {obs_mode}")
+        
+        return Instrument(
+            name=self.name,
+            pixel_scale=u.pixel_scale(self.pixel_scale_arcsec_per_pixel * u.arcsec / u.pixel),
+            telescope_diameter=self.telescope_diameter_m * u.m,
+            detector_gain=self.detector_gain,
+            readnoise=self.readnoise,
+            instrument_type=self.instrument_type,
+            wavelengths=wavelengths,
+            spectral_resolution=spectral_resolution,
+            filters=None,
+            transmission=None,
+        )
+
+
 # -------- stellar parameters ------------------------------------------------
 
 @dataclass(slots=True)
@@ -672,7 +741,7 @@ class TrapReductionConfig:
     
     # Mask parameters
     autosize_masks_in_lambda_over_d: bool = True
-    reduction_mask_size_in_lambda_over_d: float = 1.1
+    reduction_mask_size_in_lambda_over_d: float = 2.1
     signal_mask_size_in_lambda_over_d: float = 2.1
     reduction_mask_psf_size: int = 19
     signal_mask_psf_size: int = 21
@@ -762,6 +831,7 @@ class TrapConfig:
     detection: DetectionParameters = field(default_factory=DetectionParameters)
     processing: ProcessingParameters = field(default_factory=ProcessingParameters)
     resources: TrapResources = field(default_factory=TrapResources)
+    instrument: InstrumentConfig = field(default_factory=InstrumentConfig)
 
     def as_plain_dicts(self):
         """Return tuple of dictionaries for all sub-configurations."""
@@ -782,6 +852,23 @@ class TrapConfig:
     def get_stellar_parameters(self) -> Dict[str, float]:
         """Get stellar parameters as dictionary for TRAP template matching."""
         return self.detection.stellar_parameters.as_dict()
+
+    def get_instrument(self, obs_mode: str, wavelengths=None) -> Instrument:
+        """Get TRAP Instrument instance with current configuration.
+        
+        Parameters
+        ----------
+        obs_mode : str
+            Observation mode, either 'OBS_YJ' or 'OBS_H'
+        wavelengths : astropy.units.Quantity, optional
+            Wavelength array. If None, will be set to None in the Instrument.
+            
+        Returns
+        -------
+        Instrument
+            TRAP Instrument instance configured with the parameters.
+        """
+        return self.instrument.to_instrument(obs_mode, wavelengths)
 
 
 # -------- factory functions -------------------------------------------------
