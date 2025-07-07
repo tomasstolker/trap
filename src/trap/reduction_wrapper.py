@@ -16,7 +16,11 @@ import numpy as np
 import ray
 from astropy.io import fits
 from astropy.stats import mad_std
-from tqdm import tqdm
+
+try:
+    from tqdm.notebook import tqdm
+except ImportError:
+    from tqdm import tqdm
 
 from trap import (
     image_coordinates,
