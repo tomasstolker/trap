@@ -31,8 +31,8 @@ from trap.utils import (
     determine_psf_stampsizes,
     prepare_psf,
     round_up_to_odd,
-    shuffle_and_equalize_relative_positions,
     save_object,
+    shuffle_and_equalize_relative_positions,
 )
 
 logging.getLogger("ray").setLevel(logging.WARNING)
