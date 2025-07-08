@@ -18,7 +18,6 @@ The legacy Reduction_parameters class is still available but deprecated.
 
 from __future__ import annotations
 
-import warnings
 from dataclasses import asdict, dataclass, field, replace
 from typing import Any, Dict, Optional, Tuple
 
