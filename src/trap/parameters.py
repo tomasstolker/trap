@@ -482,16 +482,6 @@ class Reduction_parameters(object):
             return_input_data=False,
             verbose=False):
 
-        # Issue deprecation warning for legacy constructor
-        warnings.warn(
-            "The Reduction_parameters constructor is deprecated. "
-            "Please use the new TrapConfig and TrapReductionConfig classes instead. "
-            "Example: config = trap_config_for_ifs() or config = TrapConfig(). "
-            "The legacy constructor will be removed in a future version.",
-            DeprecationWarning,
-            stacklevel=2
-        )
-
         self.search_region = search_region
         self.search_region_inner_bound = search_region_inner_bound
         self.search_region_outer_bound = search_region_outer_bound
