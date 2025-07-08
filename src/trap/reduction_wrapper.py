@@ -9,7 +9,6 @@ import datetime
 import logging
 import multiprocessing
 import os
-import pickle
 from collections import OrderedDict
 from copy import copy
 
@@ -17,7 +16,11 @@ import numpy as np
 import ray
 from astropy.io import fits
 from astropy.stats import mad_std
-from tqdm import tqdm
+
+try:
+    from tqdm.notebook import tqdm
+except ImportError:
+    from tqdm import tqdm
 
 from trap import (
     image_coordinates,
@@ -32,6 +35,7 @@ from trap.utils import (
     determine_psf_stampsizes,
     prepare_psf,
     round_up_to_odd,
+    save_object,
     shuffle_and_equalize_relative_positions,
 )
 
@@ -800,7 +804,6 @@ def run_trap_search(
                         detection_image_corr[key][5][
                             search_coordinates[idx][0], search_coordinates[idx][1]
                         ] = result[key].correlation_info["corr_length_matern52"]
-                        # ipsh()
                         correlation_matrix_binned[key][
                             :, search_coordinates[idx][0], search_coordinates[idx][1]
                         ] = (
@@ -1167,9 +1170,9 @@ def run_complete_reduction(
         An `~trap.parameters.Instrument` object containing parameters intrinsic
         to the instrument used, such as diameter, pixel scale,
         gain and read noise.
-    reduction_parameters : `~trap.parameters.Reduction_parameters`
-        A `~trap.parameters.Reduction_parameters` object all parameters
-        necessary for the TRAP pipeline.
+    reduction_parameters : `~trap.parameters.Reduction_parameters` or `~trap.parameters.TrapConfig`
+        A `~trap.parameters.Reduction_parameters` object or `~trap.parameters.TrapConfig`
+        object containing all parameters necessary for the TRAP pipeline.
     temporal_components_fraction : array_like
         List containing the principal component fraction to be used for
         the temporal TRAP analysis. If more than one number is given
@@ -1221,6 +1224,13 @@ def run_complete_reduction(
 
     """
 
+    # Handle both legacy Reduction_parameters and modern TrapConfig
+    # Convert TrapConfig to legacy format for compatibility
+    if hasattr(reduction_parameters, 'get_reduction_parameters'):
+        # This is a TrapConfig object, convert to legacy format
+        reduction_parameters = reduction_parameters.get_reduction_parameters()
+    # If it's already a Reduction_parameters object, use it as-is
+
     if bad_frames is None:
         bad_frames = []
 
@@ -1247,14 +1257,14 @@ def run_complete_reduction(
         #     verbose=True)
 
     instrument.compute_fwhm()
-
+    
     if reduction_parameters.reduce_single_position:
         guess_position_separation = np.sqrt(
             reduction_parameters.guess_position[0] ** 2
             + reduction_parameters.guess_position[1] ** 2
         )
         print("Adjusting outer bound to fit guess position")
-        reduction_parameters.search_region_outer_bound = (
+        reduction_parameters.search_region_outer_bound = int(
             np.ceil(guess_position_separation) + 5
         )
 
@@ -1287,7 +1297,6 @@ def run_complete_reduction(
             "The provided PSF images are too small for the chosen parameters."
         )
     psf_stamps = prepare_psf(flux_psf_full, psf_size=stamp_sizes)
-
     # Remove bad frames
     if bad_frames is not None:
         data_full = np.delete(data_full, bad_frames, axis=1)
@@ -1474,12 +1483,8 @@ def run_complete_reduction(
 
     # Save parameters
     if not reduction_parameters.reduce_single_position:
-        with open(os.path.join(result_folder, "instrument.obj"), "wb") as handle:
-            pickle.dump(instrument, handle, protocol=4)
-        with open(
-            os.path.join(result_folder, "reduction_parameters.obj"), "wb"
-        ) as handle:
-            pickle.dump(reduction_parameters, handle, protocol=4)
+        save_object(instrument, os.path.join(result_folder, "instrument.obj"))
+        save_object(reduction_parameters, os.path.join(result_folder, "reduction_parameters.obj"))
 
     assert (
         flux_psf_full.shape[0] == data_full.shape[0] == len(instrument.wavelengths)

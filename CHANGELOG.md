@@ -5,6 +5,25 @@ This project adheres to [Keep a Changelog](https://keepachangelog.com/) and [Sem
 
 ## [Unreleased]
 
+## [1.2.0] - 2025-07-07
+
+### Added
+- **Config Parameter System** – Introduced a new parameter configuration system based on dataclasses, following the spherical pipeline approach, improving flexibility and clarity in setting up defaults. Legacy objects are still used under the hood for now.
+
+### Changed
+- **Search Radius Consistency** – Standardized default `iterative_search_exclusion_radius` across detection pipeline and spectral extraction to 15 pixels, adjustable by users.
+- **Annulus Width Consistency** – Removed hardcoded annulus width in spectral extraction to match pipeline-level configuration.
+- **Improved Server Handling** – Ensured Ray server properly shuts down even in case of unexpected crashes, increasing pipeline robustness.
+- **Outer Search Region Bound** – Cast `outer_search_region_bound` explicitly to integer for improved type safety.
+- **Notebook Progressbar** – Notebook compatible progressbar is used by all modules. 
+
+### Fixed
+- **Critical FWHM Bug** – Corrected calculation of PSF size (`lambda/D` conversion) compatible with astropy >= 6.1. This critical bug kept the pipeline from working properly with up-to-date astropy.
+- **Pickling Consistency** – Standardized object serialization using dill in both reduction and detection modules, fixing parameter persistence issues.
+- **Latex Syntax Warning** – Fixed incorrect LaTeX escape sequences in detection curve plotting to eliminate syntax warnings.
+
+---
+
 ## [1.1.0] - 2025-04-13
 
 ### Added

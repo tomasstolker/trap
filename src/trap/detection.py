@@ -29,7 +29,11 @@ from scipy import linalg, stats
 from species import SpeciesInit
 from species.data.database import Database
 from species.read.read_model import ReadModel
-from tqdm import tqdm
+
+try:
+    from tqdm.notebook import tqdm
+except ImportError:
+    from tqdm import tqdm
 
 from trap import image_coordinates, pca_regression, regressor_selection
 from trap.image_coordinates import absolute_yx_to_relative_yx, relative_yx_to_rhophi
@@ -198,7 +202,7 @@ def make_contrast_curve(
     detection_image,
     radial_bounds=None,
     bin_width=3.0,
-    companion_mask_radius=9,
+    companion_mask_radius=11,
     pixel_scale=12.25,
     yx_known_companion_position=None,
     mask_above_sigma=None,
@@ -627,11 +631,11 @@ def plot_contrast_curve(
         xposition = xposition[mask]
         vert_labels = np.array(
             [
-                "$1 \lambda/D$",
-                "$2 \lambda/D$",
-                "$3 \lambda/D$",
-                "$5 \lambda/D$",
-                "$10 \lambda/D$",
+                r"$1 \lambda/D$",
+                r"$2 \lambda/D$",
+                r"$3 \lambda/D$",
+                r"$5 \lambda/D$",
+                r"$10 \lambda/D$",
             ]
         )[mask]
 
@@ -656,9 +660,9 @@ def plot_contrast_curve(
 
     ax0.set_xlabel("Separation (pixel)")
     if convert_to_mag:
-        ax0.set_ylabel("{}$\sigma$ contrast (mag)".format(sigma))
+        ax0.set_ylabel("{}$\\sigma$ contrast (mag)".format(sigma))
     else:
-        ax0.set_ylabel("{}$\sigma$ contrast".format(sigma))
+        ax0.set_ylabel("{}$\\sigma$ contrast".format(sigma))
 
     # set ticks visible, if using sharex = True. Not needed otherwise
     ax0.set_xlim(xmin, xmax + x_text_shift)
@@ -702,7 +706,7 @@ def plot_contrast_curve(
     # get left axis limits
     # xmin, xmax = ax0.get_xlim()
     if mirror_axis == "lod":
-        ax2.set_xlabel("Separation ($\lambda / D$)")
+        ax2.set_xlabel(r"Separation ($\lambda / D$)")
         ax2.set_xlim(
             (
                 sep_pix_to_lod(xmin * u.pixel, wavelengths[0], instrument),
@@ -721,7 +725,7 @@ def plot_contrast_curve(
 
     ax3 = ax0.twinx()
     ax3.set_ylim((contrast_to_magnitude(ymin), contrast_to_magnitude(ymax)))
-    ax3.set_ylabel("$\Delta \,$magnitude")
+    ax3.set_ylabel(r"$\Delta \,$magnitude")
     ax3.plot([], [])
     ax0.minorticks_on()
     ax2.minorticks_on()
@@ -863,11 +867,11 @@ def plot_contrast_curve_ratio(
         fwhm = instrument.fwhm[0]
         xposition = (np.array([1, 2, 3, 5, 10]) * fwhm).value
         vert_labels = [
-            "$1 \lambda/D$",
-            "$2 \lambda/D$",
-            "$3 \lambda/D$",
-            "$5 \lambda/D$",
-            "$10 \lambda/D$",
+            r"$1 \lambda/D$",
+            r"$2 \lambda/D$",
+            r"$3 \lambda/D$",
+            r"$5 \lambda/D$",
+            r"$10 \lambda/D$",
         ]
 
         # text_y = ymin
@@ -922,7 +926,7 @@ def plot_contrast_curve_ratio(
     # get left axis limits
     # xmin, xmax = ax0.get_xlim()
     if mirror_axis == "lod":
-        ax2.set_xlabel("Separation ($\lambda / D$)")
+        ax2.set_xlabel(r"Separation ($\lambda / D$)")
         ax2.set_xlim(
             (
                 sep_pix_to_lod(xmin * u.pixel, wavelengths[0], instrument),
@@ -1024,7 +1028,7 @@ def plot_distribution(
     radial_bounds=None,
     plot_type="qqplot",
     sigma=5,
-    companion_mask_radius=10,
+    companion_mask_radius=11,
     pixel_scale=12.25,
     yx_known_companion_position=None,
 ):
@@ -1049,10 +1053,11 @@ def plot_distribution(
     mask = np.logical_and(annulus_mask, ~detected_signal_mask)
     if plot_type == "qqplot":
         _ = stats.probplot(detection_image[mask], dist="norm", plot=plt)
+        # QQ plot doesn't create labeled artists, so no legend needed
     elif plot_type == "distplot":
         import seaborn as sns
         sns.histplot(detection_image[mask], label="TRAP", kde=True, stat="density", linewidth=0)
-    plt.legend()
+        plt.legend()
     plt.show()
 
 
@@ -1111,13 +1116,12 @@ def fit_2d_gaussian(
     fitter = fitting.LevMarLSQFitter()
     par = fitter(g_init, xx[finite_mask], yy[finite_mask], cutout.data[finite_mask])
     model = par(xx, yy)
-    
+
     if plot:
         plt.imshow(cutout.data, origin="lower")
         plt.show()
         plt.imshow(model, origin="lower")
         plt.show()
-
     # Check if model fit is close to data (this is not perfect in case the detection is on the edge)
     # May require special treatment or warning
     mask = (
@@ -1186,31 +1190,6 @@ def fit_planet_parameters(
     fix_orientation=True,
     plot=False,
 ):
-    # yx_dim = (detection_image.shape[-2], detection_image.shape[-1])
-    # yx_center = (yx_dim[0] // 2, yx_dim[1] // 2)
-
-    # yx_known_companion_position = [-35.95, -8.43]
-    # companion_mask_radius = 15
-    # if yx_known_companion_position is not None:
-    #     detected_signal_mask = make_signal_mask(
-    #         yx_dim, yx_known_companion_position, companion_mask_radius,
-    #         relative_pos=True, yx_center=None)
-    #
-    # profile, values = make_radial_profile(
-    #     detection_image[0], bin_width=1,
-    #     radial_bounds=radial_bounds,
-    #     known_companion_mask=detected_signal_mask,
-    #     operation='median')
-    # detection_image[0] = detection_image[0] - profile
-    # fit_snr, model_snr, stamp_snr, yx_pos_absolute_snr, yx_pos_relative_snr = fit_2d_gaussian(
-    # normalized_detection_image, yx_position=yx_position, box_size=box_size)
-
-    # if iterate:
-    #     yx_position = np.round(np.array(yx_pos_absolute_snr)).astype('int')
-    #     fit_snr, model_snr, stamp_snr, yx_pos_absolute_snr, yx_pos_relative_snr = fit_2d_gaussian(
-    #         normalized_detection_image, yx_position=yx_position, box_size=box_size)
-
-    # xy_in_stamp = (fit_snr.x_mean.value, fit_snr.y_mean.value)
 
     contrast_image_parameters = fit_2d_gaussian(
         detection_image[0],
@@ -1317,7 +1296,12 @@ def summarize_2d_gauss_fit_result(result_dictionary):
 
 
 class DetectionAnalysis(object):
-    """Class for"""
+    """Class for analyzing TRAP detection results and candidate characterization.
+    
+    This class provides methods for reading TRAP reduction outputs, generating
+    contrast curves, finding and fitting candidates, and performing template 
+    matching analysis.
+    """
 
     def __init__(
         self,
@@ -1327,12 +1311,40 @@ class DetectionAnalysis(object):
         instrument=None,
         reduction_parameters=None,
     ):
-        """ """
+        """Initialize DetectionAnalysis object.
+        
+        Parameters
+        ----------
+        result_folder : str, optional
+            Path to folder containing TRAP reduction outputs.
+        detection_images : array_like, optional
+            Pre-loaded detection images.
+        wavelength_indices : array_like, optional
+            Wavelength indices for the analysis.
+        instrument : Instrument, optional
+            Instrument object containing observational parameters.
+        reduction_parameters : Reduction_parameters or TrapConfig, optional
+            Reduction parameters object. Can be either legacy Reduction_parameters
+            or modern TrapConfig object.
+        """
 
         self.detection_images = detection_images
         self.wavelength_indices = wavelength_indices
         self.instrument = instrument
-        self.reduction_parameters = reduction_parameters
+        
+        # Handle both legacy Reduction_parameters and modern TrapConfig
+        # Convert TrapConfig to legacy format for compatibility
+        if reduction_parameters is not None:
+            if hasattr(reduction_parameters, 'get_reduction_parameters'):
+                # This is a TrapConfig object, convert to legacy format
+                self.reduction_parameters = reduction_parameters.get_reduction_parameters()
+                print("Using TrapConfig, converted to legacy Reduction_parameters format.")
+            else:
+                # This is already a Reduction_parameters object, use it as-is
+                self.reduction_parameters = reduction_parameters
+        else:
+            self.reduction_parameters = None
+            
         self.detected_signal_mask = None
         self.templates = OrderedDict()
         self.empirical_correlation = None
@@ -1347,9 +1359,32 @@ class DetectionAnalysis(object):
         reduction_type="temporal",
         correlated_residuals=False,
         read_parameters=True,
+        read_instrument=True,
         reduction_parameters=None,
         instrument=None,
     ):
+        """Read TRAP reduction output files and set up detection analysis.
+        
+        Parameters
+        ----------
+        component_fraction : float
+            Component fraction used in the reduction.
+        result_folder : str, optional
+            Path to folder containing reduction outputs. If None, uses
+            self.reduction_parameters.result_folder.
+        reduction_type : str, optional
+            Type of reduction ("temporal", "spatial", "temporal_plus_spatial").
+            Default is "temporal".
+        correlated_residuals : bool, optional
+            Whether to read correlated residual outputs. Default is False.
+        read_parameters : bool, optional
+            Whether to read parameters from saved files. Default is True.
+        reduction_parameters : Reduction_parameters or TrapConfig, optional
+            Reduction parameters object. Can be either legacy Reduction_parameters
+            or modern TrapConfig. Only used if read_parameters=False.
+        instrument : Instrument, optional
+            Instrument object. Only used if read_parameters=False.
+        """
         if result_folder is None:
             self.result_folder = self.reduction_parameters.result_folder
         else:
@@ -1358,13 +1393,21 @@ class DetectionAnalysis(object):
         self.component_fraction = component_fraction
         self.correlated_residuals = correlated_residuals
         self.reduction_type = reduction_type
+        if read_instrument:
+            self.instrument = load_object(os.path.join(result_folder, "instrument.obj"))
 
         if read_parameters:
             self.reduction_parameters = load_object(os.path.join(result_folder, "reduction_parameters.obj"))
-            self.instrument = load_object(os.path.join(result_folder, "instrument.obj"))
         else:
             if reduction_parameters is not None and instrument is not None:
-                self.reduction_parameters = reduction_parameters
+                # Handle both legacy Reduction_parameters and modern TrapConfig
+                # Convert TrapConfig to legacy format for compatibility
+                if hasattr(reduction_parameters, 'get_reduction_parameters'):
+                    # This is a TrapConfig object, convert to legacy format
+                    self.reduction_parameters = reduction_parameters.get_reduction_parameters()
+                else:
+                    # This is already a Reduction_parameters object, use it as-is
+                    self.reduction_parameters = reduction_parameters
                 self.instrument = instrument
         self.instrument.compute_fwhm()
 
@@ -1617,7 +1660,7 @@ class DetectionAnalysis(object):
         return fig
 
     def mask_companions_in_detection(
-        self, yx_known_companion_position=None, mask_radius=None
+        self, yx_known_companion_position=None, companion_mask_radius=None
     ):
         yx_dim = (self.detection_cube.shape[-2], self.detection_cube.shape[-1])
 
@@ -1626,8 +1669,8 @@ class DetectionAnalysis(object):
                 self.reduction_parameters.yx_known_companion_position
             )
 
-        if mask_radius is None:
-            mask_radius = self.reduction_parameters.companion_mask_radius
+        if companion_mask_radius is None:
+            companion_mask_radius = self.reduction_parameters.companion_mask_radius
 
         if yx_known_companion_position is not None:
             yx_known_companion_position = np.array(yx_known_companion_position)
@@ -1635,7 +1678,7 @@ class DetectionAnalysis(object):
                 self.detected_signal_mask = regressor_selection.make_signal_mask(
                     yx_dim,
                     yx_known_companion_position,
-                    mask_radius,
+                    companion_mask_radius,
                     relative_pos=True,
                     yx_center=None,
                 )
@@ -1646,7 +1689,7 @@ class DetectionAnalysis(object):
                         regressor_selection.make_signal_mask(
                             yx_dim,
                             yx_pos,
-                            mask_radius,
+                            companion_mask_radius,
                             relative_pos=True,
                             yx_center=None,
                         )
@@ -1740,7 +1783,7 @@ class DetectionAnalysis(object):
         self.empirical_correlation = empirical_correlation
 
     def find_approximate_candidate_positions(
-        self, snr_image, candidate_threshold=4.75, mask_radius=9
+        self, snr_image, candidate_threshold=4.75, mask_radius=15
     ):
         snr_image = np.ma.masked_array(snr_image)
 
@@ -1800,7 +1843,7 @@ class DetectionAnalysis(object):
         self,
         detection_product_index=0,
         candidate_threshold=3.5,
-        mask_radius=9,
+        iterative_search_exclusion_radius=15,
         detection_products=None,
     ):
         if detection_products is None:
@@ -1825,35 +1868,13 @@ class DetectionAnalysis(object):
         candidates = self.find_approximate_candidate_positions(
             detection_products["normalized_detection_cube"][detection_product_index],
             candidate_threshold=candidate_threshold,
-            mask_radius=mask_radius,
+            mask_radius=iterative_search_exclusion_radius,
         )
 
         # Exclude "detections" very close to the IWA of the reduction
         mask_too_close = candidates["separation"] < smallest_separation_in_pixel
         candidates = candidates[~mask_too_close]
 
-        # if len(candidates) > 0:
-        #     yx_known_companion_position = candidates[['y_relative', 'x_relative']].values
-        #     self.reduction_parameters.yx_known_companion_position = yx_known_companion_position
-        #     detection_products = self.contrast_table_and_normalization(save=False, inplace=False)
-        #
-        #     candidates = self.find_approximate_candidate_positions(
-        #         detection_products['normalized_detection_cube'][detection_product_index],
-        #         detection_threshold=detection_threshold, mask_radius=mask_radius)
-        #     mask_too_close = candidates['separation'] < smallest_separation_in_pixel + 2
-        #     candidates = candidates[~mask_too_close]
-        #     yx_known_companion_position2 = candidates[['y_relative', 'x_relative']].values
-        #     if len(candidates) > 0 and not np.all(yx_known_companion_position == yx_known_companion_position2):
-        #         self.reduction_parameters.yx_known_companion_position = yx_known_companion_position2
-        #         # self.mask_companions_in_detection()
-        #         detection_products = self.contrast_table_and_normalization(
-        #             save=False, inplace=False)
-        #     self.contrast_table_and_normalization(save=True)
-        #
-        #         candidates = self.find_approximate_candidate_positions(
-        #             detection_products['normalized_detection_cube'][detection_product_index],
-        #             detection_threshold=candidate_threshold, mask_radius=mask_radius)
-        #         mask_too_close = candidates['separation'] < smallest_separation_in_pixel + 2
         candidates = candidates[~mask_too_close].sort_values(
             "separation", ignore_index=False
         )
@@ -2086,6 +2107,7 @@ class DetectionAnalysis(object):
         detection_products=None,
         wavelength_indices=None,
         candidate_threshold=4.0,
+        iterative_search_exclusion_radius=15,
     ):
         if detection_cube is None:
             detection_cube = self.detection_cube
@@ -2101,6 +2123,7 @@ class DetectionAnalysis(object):
                     detection_product_index=detection_product_index,
                     detection_products=detection_products,
                     candidate_threshold=candidate_threshold,
+                    iterative_search_exclusion_radius=iterative_search_exclusion_radius,
                 )
             )
 
@@ -2115,10 +2138,102 @@ class DetectionAnalysis(object):
         detection_cube=None,
         detection_products=None,
         wavelength_indices=None,
-        candidate_threshold=4.0,
-        search_radius=5,
+        candidate_threshold=4.75,
+        search_radius=15,
         mask_deviating=False,
     ):
+        """
+        Consolidate candidate detections with 2D Gaussian fitting and duplicate removal.
+
+        This function takes a list of candidate detections (potentially with duplicates 
+        across wavelengths) and consolidates them into a single table with precise 
+        fitted parameters. It performs 2D Gaussian fitting on contrast, SNR, and 
+        normalized SNR images, removes duplicates within a search radius, and provides 
+        position uncertainty estimates through weighted averaging.
+
+        Parameters
+        ----------
+        candidates : pandas.DataFrame, optional
+            Table of candidate detections with columns including 'x', 'y', 
+            'x_relative', 'y_relative', 'separation', 'position_angle', 'snr'.
+            If None, candidates are automatically found using 
+            find_candidates_all_wavelengths().
+        detection_cube : ndarray, optional
+            Detection cube with shape (n_wavelengths, n_images, n_y, n_x) where 
+            n_images typically includes [contrast, uncertainty, snr] maps.
+            If None, uses self.detection_cube.
+        detection_products : dict, optional
+            Dictionary containing detection products including 'contrast_tables' 
+            and 'normalized_detection_cube'. If None, uses self.detection_products.
+        wavelength_indices : array_like, optional
+            Indices of wavelengths to process. If None, uses self.wavelength_indices.
+        candidate_threshold : float, optional
+            Signal-to-noise ratio threshold for candidate identification.
+            Default is 4.0.
+        search_radius : float, optional
+            Radius in pixels for grouping multiple detections of the same source.
+            Candidates within this radius are considered duplicates and consolidated.
+            Default is 11.0.
+        mask_deviating : bool, optional
+            Whether to mask candidates with deviating PSF parameters during 
+            2D Gaussian fitting. Default is False.
+
+        Returns
+        -------
+        candidates : pandas.DataFrame or None
+            Consolidated candidate table with duplicate entries removed, sorted by 
+            separation. Contains columns from original candidates list.
+            Returns None if no candidates found.
+        candidates_fit : dict or None
+            Dictionary containing fitting results with keys:
+            - 'contrast_image' : pandas.DataFrame
+                2D Gaussian fit results on contrast images
+            - 'snr_image' : pandas.DataFrame  
+                2D Gaussian fit results on SNR images (primary position source)
+            - 'norm_snr_image' : pandas.DataFrame
+                2D Gaussian fit results on normalized SNR images
+            Returns None if no candidates found.
+
+        Notes
+        -----
+        The function performs the following key operations:
+
+        1. **2D Gaussian Fitting**: Fits 2D Gaussians to three different images:
+           - Contrast image: Provides actual contrast measurements
+           - SNR image: Used for primary position determination (most reliable)
+           - Normalized SNR image: Used for detection significance assessment
+
+        2. **Duplicate Removal**: Candidates within search_radius are grouped and 
+           consolidated using SNR-weighted averaging of fit parameters.
+
+        3. **Position Refinement**: Initial candidate positions from peak-finding 
+           are refined through 2D Gaussian centroiding for sub-pixel accuracy.
+
+        4. **Uncertainty Estimation**: For candidates detected in multiple 
+           wavelengths, standard deviations provide position uncertainty estimates.
+
+        The SNR image fit results are used as the primary source for positional 
+        information because they provide the best signal-to-noise for accurate 
+        centroiding while being less affected by calibration uncertainties.
+
+        Position coordinates are in image pixels with origin at (0,0). Relative 
+        coordinates are measured from the image center. Position angles are 
+        measured east of north in degrees.
+
+        Examples
+        --------
+        >>> # Basic usage with automatic candidate finding
+        >>> candidates, candidates_fit = analysis.complete_candidate_table(
+        ...     candidate_threshold=4.5,
+        ...     search_radius=8.0
+        ... )
+        >>> 
+        >>> # Check results
+        >>> if candidates is not None:
+        ...     print(f"Found {len(candidates)} unique candidates")
+        ...     print(f"Position precision: {candidates_fit['snr_image']['separation_sigma'].mean():.2f} pixels")
+        """
+ 
         if detection_cube is None:
             detection_cube = self.detection_cube
         if detection_products is None:
@@ -2132,6 +2247,7 @@ class DetectionAnalysis(object):
                 detection_products=detection_products,
                 wavelength_indices=wavelength_indices,
                 candidate_threshold=candidate_threshold,
+                iterative_search_exclusion_radius=search_radius,
             )
 
         if len(candidates) == 0:
@@ -2145,7 +2261,7 @@ class DetectionAnalysis(object):
             detection_products=detection_products,
             plot=False,
         )
-
+        
         unique_candidate_indices = []
         rejected = []
         final_position_table = []
@@ -2219,11 +2335,11 @@ class DetectionAnalysis(object):
                             / grp[weight_column].sum()
                         )
 
-                    weighted_agg = df.groupby("group").apply(weighted_average)
+                    weighted_agg = df.groupby("group").apply(weighted_average, include_groups=False)
                     weighted_agg = weighted_agg[weighted_average_key_list]
 
                     # Compute uncertainty based on standard deviation
-                    std_dev_df = df.groupby("group").apply(np.std, axis=0)
+                    std_dev_df = df.groupby("group").apply(np.std, axis=0, include_groups=False)
                     weighted_agg.insert(
                         loc=5,
                         column="separation_sigma",
@@ -2352,8 +2468,8 @@ class DetectionAnalysis(object):
         if wavelength_indices is None:
             wavelength_indices = self.wavelength_indices
 
-        re_reduction_parameters = copy.copy(self.reduction_parameters)
-        detection_products_orig = copy.copy(self.detection_products)
+        re_reduction_parameters = copy.deepcopy(self.reduction_parameters)
+        detection_products_orig = copy.deepcopy(self.detection_products)
 
         re_reduction_parameters.guess_position = yx_candidate_position
         re_reduction_parameters.use_multiprocess = False
@@ -2363,7 +2479,6 @@ class DetectionAnalysis(object):
         # To avoid manipulating data in place (multiple injections)
         # Set remove_known_companions to False
         re_reduction_parameters.remove_known_companions = False
-
         all_results = run_complete_reduction(
             data_full=data_full.copy(),
             flux_psf_full=flux_psf_full.copy(),
@@ -2379,7 +2494,7 @@ class DetectionAnalysis(object):
             amplitude_modulation_full=amplitude_modulation_full,
             verbose=verbose,
         )
-
+        
         if return_all_results:
             return all_results
 
@@ -2494,21 +2609,132 @@ class DetectionAnalysis(object):
         return candidate_spectrum
 
     def extract_candidate_spectra(
-            self,
-            temporal_components_fraction,
-            data_full,
-            flux_psf_full,
-            pa,
-            yx_candidate_positions=None,
-            wavelength_indices=None,
-            inverse_variance_full=None,
-            instrument=None,
-            bad_frames=None,
-            bad_pixel_mask_full=None,
-            xy_image_centers=None,
-            amplitude_modulation_full=None,
-            return_spectra=False,
-        ):
+        self,
+        temporal_components_fraction,
+        data_full,
+        flux_psf_full,
+        pa,
+        yx_candidate_positions=None,
+        wavelength_indices=None,
+        inverse_variance_full=None,
+        instrument=None,
+        bad_frames=None,
+        bad_pixel_mask_full=None,
+        xy_image_centers=None,
+        amplitude_modulation_full=None,
+        return_spectra=False,
+    ):
+        """
+        Extract high-fidelity spectra for candidate companions using full reduction.
+
+        This function performs dedicated spectral extraction for each candidate
+        by running the complete TRAP reduction pipeline at the candidate positions.
+        This provides the most accurate contrast measurements and uncertainties
+        for spectral characterization, free from the approximations used in the
+        initial detection phase.
+
+        Parameters
+        ----------
+        temporal_components_fraction : float
+            Fraction of temporal components to retain during PCA reduction.
+            Typical values range from 0.1 to 0.5, with smaller values providing
+            more aggressive speckle suppression but potentially removing real signals.
+        data_full : ndarray
+            Full data cube with shape (n_frames, n_wavelengths, n_y, n_x) containing
+            the raw observations for spectral extraction.
+        flux_psf_full : ndarray
+            Full PSF flux cube with shape matching data_full, containing the
+            normalized PSF template for each frame and wavelength.
+        pa : array_like
+            Position angles in degrees for each frame, with shape (n_frames,).
+            Used for field rotation tracking during reduction.
+        yx_candidate_positions : array_like, optional
+            Candidate positions in image coordinates with shape (n_candidates, 2).
+            Each row contains [y_relative, x_relative] coordinates from image center.
+            If None, uses positions from self.candidates_fit['snr_image'].
+        wavelength_indices : array_like, optional
+            Indices of wavelengths to process. If None, processes all wavelengths
+            in the instrument specification.
+        inverse_variance_full : ndarray, optional
+            Inverse variance weights with shape matching data_full for optimal
+            extraction. If None, uses uniform weighting.
+        instrument : Instrument, optional
+            Instrument specification containing wavelength and detector parameters.
+            If None, uses self.instrument.
+        bad_frames : array_like, optional
+            Boolean array or indices of frames to exclude from extraction.
+        bad_pixel_mask_full : ndarray, optional
+            Bad pixel mask with shape matching data_full.
+        xy_image_centers : ndarray, optional
+            Image center coordinates for each frame with shape (n_frames, 2).
+            Used for coordinate transformations.
+        amplitude_modulation_full : ndarray, optional
+            Amplitude modulation factors accounting for instrumental effects.
+        return_spectra : bool, optional
+            Whether to return the extracted spectra. Default is False.
+
+        Returns
+        -------
+        candidate_spectra : pandas.DataFrame or None
+            Combined spectral table for all candidates with columns:
+            - 'candidate_id' : int, identifier for each candidate
+            - 'wavelength_index' : int, index in instrument wavelength array
+            - 'wavelength' : float, wavelength in micrometers
+            - 'contrast' : float, companion-to-star contrast ratio
+            - 'uncertainty' : float, normalized uncertainty (contrast units)
+            - 'snr' : float, signal-to-noise ratio (contrast/uncertainty)
+            - 'original_unc' : float, original uncertainty before normalization
+            - 'norm_factor' : float, normalization factor applied
+            Returns None if no candidate positions provided or if return_spectra=False.
+
+        Notes
+        -----
+        This function performs the following operations for each candidate:
+
+        1. **Individual Reduction**: Runs the complete TRAP reduction pipeline
+           at each candidate position with optimized parameters for single-source
+           extraction.
+
+        2. **Contrast Measurement**: Measures the companion contrast at each
+           wavelength using the same algorithms as the main reduction.
+
+        3. **Uncertainty Estimation**: Calculates realistic uncertainties
+           accounting for noise correlation and systematic effects.
+
+        4. **Normalization**: Applies the same normalization factors used in
+           the detection phase for consistent SNR calculations.
+
+        The extraction uses a dedicated reduction configuration that:
+        - Disables multiprocessing for deterministic results
+        - Enables automatic data cropping around the candidate position
+        - Excludes other known companions to avoid contamination
+        - Uses the candidate position as an initial guess for optimization
+
+        The resulting spectra provide the most accurate characterization possible
+        with the given data and should be used for scientific analysis rather
+        than the approximate values from the detection phase.
+
+        Position coordinates are in image pixels with origin at (0,0). Relative
+        coordinates are measured from the image center.
+
+        Examples
+        --------
+        >>> # Extract spectra for validated candidates
+        >>> spectra = analysis.extract_candidate_spectra(
+        ...     temporal_components_fraction=0.2,
+        ...     data_full=data_cube,
+        ...     flux_psf_full=psf_cube,
+        ...     pa=position_angles,
+        ...     return_spectra=True
+        ... )
+        >>> 
+        >>> # Analyze spectral properties
+        >>> if spectra is not None:
+        ...     for cand_id in spectra['candidate_id'].unique():
+        ...         cand_spec = spectra[spectra['candidate_id'] == cand_id]
+        ...         median_snr = cand_spec['snr'].median()
+        ...         print(f"Candidate {cand_id}: median SNR = {median_snr:.1f}")
+        """
         """
         Extracts candidate spectra from the given data.
 
@@ -2581,6 +2807,104 @@ class DetectionAnalysis(object):
         theta_deviation_threshold=25.0,
         yx_fwhm_ratio_threshold=[1.1, 4.5],
     ):
+        """
+        Create companion tables with validation criteria and spectral information.
+
+        This function consolidates candidate detection results into comprehensive 
+        tables, applies validation criteria to identify reliable detections, and 
+        optionally incorporates spectral characterization data. It produces both 
+        a complete companion table and a validated subset meeting quality criteria.
+
+        Parameters
+        ----------
+        candidates : pandas.DataFrame
+            Table of candidate detections with columns including 'snr' (peak pixel 
+            signal-to-noise ratio) and positional information.
+        candidates_fit : dict
+            Dictionary containing 2D Gaussian fit results with keys:
+            - 'snr_image' : pandas.DataFrame with fitted positions and PSF parameters
+            - 'norm_snr_image' : pandas.DataFrame with normalized SNR fit amplitudes
+        candidate_spectra : pandas.DataFrame, optional
+            Spectral characterization results for each candidate with columns 
+            including 'candidate_id', 'wavelength', 'contrast', 'uncertainty', 'snr'.
+            If None and use_spectra=True, uses self.candidate_spectra.
+        use_spectra : bool, optional
+            Whether to incorporate spectral information into the analysis.
+            Default is True.
+        template_name : str, optional
+            Name of the template used for detection, added as a column to the 
+            companion table. Default is None.
+        snr_threshold : float, optional
+            Minimum signal-to-noise ratio required for validation. Default is 4.5.
+        snr_threshold_spectrum : bool, optional
+            If True and use_spectra=True, uses spectral SNR for thresholding.
+            If False, uses the maximum of fitted SNR and peak pixel SNR.
+            Default is True.
+        good_fraction_threshold : float, optional
+            Minimum fraction of good pixels required in 2D Gaussian fit.
+            Default is 0.05.
+        theta_deviation_threshold : float, optional
+            Maximum allowed deviation in degrees between expected position angle
+            (from separation vector) and fitted PSF position angle. Default is 25.0.
+        yx_fwhm_ratio_threshold : list of float, optional
+            Allowed range [min, max] for the ratio of y-axis to x-axis FWHM
+            in unconstrained 2D Gaussian fits. Default is [1.1, 4.5].
+
+        Returns
+        -------
+        companion_table : pandas.DataFrame
+            Complete table of all candidates with columns including:
+            - Position: 'x', 'y', 'x_relative', 'y_relative', 'separation', 'position_angle'
+            - Uncertainties: 'separation_sigma', 'position_angle_sigma'
+            - PSF parameters: 'x_fwhm', 'y_fwhm', 'theta_free', 'yx_fwhm_ratio'
+            - Detection metrics: 'norm_snr_fit', 'norm_snr_fit_free', 'peak_pixel_snr'
+            - Validation metrics: 'theta_deviation', 'good_fraction_free'
+            - Spectral data: 'wavelength', 'contrast', 'uncertainty', 'snr' (if use_spectra=True)
+        validated_companion_table : pandas.DataFrame
+            Subset of companion_table containing only candidates that pass all
+            validation criteria defined by the threshold parameters.
+
+        Notes
+        -----
+        The function performs the following validation steps:
+
+        1. **SNR Validation**: Candidates must exceed snr_threshold using either
+           spectral SNR (if available) or the maximum of fitted and peak pixel SNR.
+
+        2. **PSF Quality**: The good_fraction_free must exceed the threshold,
+           indicating sufficient good pixels for reliable 2D Gaussian fitting.
+
+        3. **Position Angle Consistency**: The deviation between expected position
+           angle (from separation vector) and fitted PSF angle must be within limits.
+
+        4. **PSF Shape Validation**: The ratio of y-axis to x-axis FWHM must be
+           within physical limits to exclude artifacts and badly fitted sources.
+
+        The companion table includes multiple SNR measurements:
+        - 'peak_pixel_snr': Direct pixel value from initial detection
+        - 'norm_snr_fit': Amplitude from constrained 2D Gaussian fit on normalized SNR
+        - 'norm_snr_fit_free': Amplitude from unconstrained fit (primary validation metric)
+
+        Position coordinates are in image pixels with origin at (0,0). Relative
+        coordinates are measured from the image center. Position angles are 
+        measured east of north in degrees.
+
+        Examples
+        --------
+        >>> # Basic validation with default criteria
+        >>> companion_table, validated_table = analysis.detection_summary(
+        ...     candidates=candidates,
+        ...     candidates_fit=candidates_fit,
+        ...     candidate_spectra=spectra,
+        ...     snr_threshold=5.0,
+        ...     template_name='T-type'
+        ... )
+        >>> 
+        >>> # Check validation results
+        >>> print(f"Total candidates: {len(companion_table)}")
+        >>> print(f"Validated candidates: {len(validated_table)}")
+        >>> print(f"Validation rate: {len(validated_table)/len(companion_table)*100:.1f}%")
+        """
         if candidates is None:
             candidates = self.candidates
 
@@ -2852,15 +3176,101 @@ class DetectionAnalysis(object):
         file_paths=None,
         save=True,
     ):
+        """
+        Perform pixel-by-pixel spectral template matching for companion detection.
+
+        This function implements the core template matching algorithm that fits 
+        spectral templates to each pixel in the detection cube using generalized 
+        least squares with optional spectral correlation. The method creates a 
+        template-matched detection map with contrast, uncertainty, and SNR images.
+
+        Parameters
+        ----------
+        template : SpectralTemplate
+            Spectral template object containing the companion model spectrum,
+            stellar model spectrum, and fitting configuration parameters including:
+            - fit_offset : bool, whether to fit a constant offset
+            - fit_slope : bool, whether to fit a linear slope in wavelength
+            - use_spectral_correlation : bool, whether to use correlated noise model
+            - number_of_pca_regressors : int, number of PCA components for regression
+        inner_mask_radius : float, optional
+            Radius in pixels to mask around the central star position during 
+            template matching. Default is 1.0.
+        detection_threshold : float, optional
+            Signal-to-noise ratio threshold used for contrast curve normalization.
+            Default is 5.0.
+        file_paths : dict, optional
+            Dictionary specifying output file paths for detection products.
+            Expected keys include 'norm_detection_image_path', 'uncertainty_image_path',
+            'contrast_table_path', 'contrast_plot_path'. If None, default paths 
+            are generated.
+        save : bool, optional
+            Whether to save detection products to disk. Default is True.
+
+        Returns
+        -------
+        detection_cube : ndarray
+            Template-matched detection cube with shape (1, 3, n_y, n_x) containing:
+            - [0, 0, :, :] : Contrast image (fitted amplitudes)
+            - [0, 1, :, :] : Uncertainty image (fit uncertainties)  
+            - [0, 2, :, :] : SNR image (contrast/uncertainty)
+        detection_products : dict
+            Dictionary containing detection analysis products:
+            - 'contrast_tables' : list of pandas.DataFrame
+                Radial contrast curves and normalization factors
+            - 'normalized_detection_cube' : list of ndarray
+                Normalized detection maps for candidate identification
+
+        Notes
+        -----
+        The template matching process performs the following steps:
+
+        1. **Spectral Correlation**: Computes empirical spectral correlation 
+           matrices as a function of separation to model correlated noise.
+
+        2. **Model Construction**: For each pixel, builds a design matrix including:
+           - Constant offset (if template.fit_offset=True)
+           - Linear slope in wavelength (if template.fit_slope=True)  
+           - Spectral template (normalized companion model)
+           - PCA regressors (if template.number_of_pca_regressors > 0)
+
+        3. **Generalized Least Squares**: Solves the linear system using either:
+           - Correlated noise model with empirical covariance matrix
+           - Simple diagonal covariance matrix for independent noise
+
+        4. **Output Generation**: Creates template-matched images with fitted 
+           contrast amplitudes, uncertainties, and signal-to-noise ratios.
+
+        The algorithm assumes that the detection cube contains contrast measurements
+        with associated uncertainty estimates. Zero or NaN values are masked during
+        processing to avoid numerical issues.
+
+        Coordinates are in image pixels with origin at (0,0). The central star is
+        assumed to be at the image center for masking purposes.
+
+        Examples
+        --------
+        >>> # Basic template matching
+        >>> detection_cube, detection_products = analysis.template_matching_detection(
+        ...     template=my_template,
+        ...     inner_mask_radius=2.0,
+        ...     detection_threshold=5.0
+        ... )
+        >>> 
+        >>> # Check detection map quality
+        >>> snr_map = detection_cube[0, 2, :, :]
+        >>> max_snr = np.nanmax(snr_map)
+        >>> print(f"Peak SNR in template-matched map: {max_snr:.1f}")
+        """
         template_name = template.name
 
         # wavelengths = np.zeros(self.instrument.wavelengths.shape)
         wavelengths = self.instrument.wavelengths[self.wavelength_indices]
 
-        contrast_cube = self.detection_cube[:, 0].astype("float64")
+        contrast_cube = self.detection_cube[:, 0].astype("float64").copy()
         uncertainty_cube = self.detection_products["uncertainty_cube"].astype(
             "float64"
-        )  # / detection1.reduction_parameters.contrast_curve_sigma
+        ).copy()  # / detection1.reduction_parameters.contrast_curve_sigma
         
         contrast_cube[contrast_cube == 0.0] = np.nan
         uncertainty_cube[uncertainty_cube == 0.0] = np.nan
@@ -2872,7 +3282,7 @@ class DetectionAnalysis(object):
             np.all(np.isfinite(contrast_cube), axis=0),
             ~np.any(contrast_cube == 0.0, axis=0),
         )
-        self.reduction_parameters.annulus_width = 3
+        # self.reduction_parameters.annulus_width = 3
 
         center_mask = regressor_selection.make_signal_mask(
             yx_dim, (0, 0), inner_mask_radius, relative_pos=True, yx_center=None
@@ -3053,7 +3463,7 @@ class DetectionAnalysis(object):
         detection_threshold=5.0,
         candidate_threshold=4.75,
         inner_mask_radius=1,
-        search_radius=5,
+        search_radius=15,
         good_fraction_threshold=0.05,
         theta_deviation_threshold=25,
         yx_fwhm_ratio_threshold=[1.1, 4.5],
@@ -3072,6 +3482,125 @@ class DetectionAnalysis(object):
         file_paths=None,
         save=True,
     ):
+        """
+        Perform robust template matching detection with two-iteration bias correction.
+
+        This function implements a sophisticated detection algorithm that uses spectral 
+        template matching followed by a two-iteration detection process to avoid bias 
+        in background statistics. The method first detects candidates using potentially 
+        biased statistics, then masks these detections to compute unbiased background 
+        statistics, and finally re-detects candidates using the corrected statistics.
+
+        Parameters
+        ----------
+        template : SpectralTemplate
+            The spectral template object containing the companion model spectrum,
+            stellar model spectrum, and fitting parameters.
+        detection_threshold : float, optional
+            Signal-to-noise ratio threshold for final detection validation.
+            Default is 5.0.
+        candidate_threshold : float, optional
+            Signal-to-noise ratio threshold for initial candidate identification.
+            Default is 4.75.
+        inner_mask_radius : float, optional
+            Radius in pixels to mask around the central star during template matching.
+            Default is 1.0.
+        search_radius : float, optional
+            Radius in pixels for grouping multiple detections of the same source.
+            Default is 15.0.
+        good_fraction_threshold : float, optional
+            Minimum fraction of good pixels required in 2D Gaussian fit for validation.
+            Default is 0.05.
+        theta_deviation_threshold : float, optional
+            Maximum allowed deviation in degrees between expected and fitted PSF 
+            position angle for validation. Default is 25.0.
+        yx_fwhm_ratio_threshold : list of float, optional
+            Allowed range [min, max] for the ratio of y-axis to x-axis FWHM in 
+            2D Gaussian fits for validation. Default is [1.1, 4.5].
+        mask_deviating : bool, optional
+            Whether to mask candidates with deviating PSF parameters during fitting.
+            Default is False.
+        data_full : ndarray, optional
+            Full data cube for spectral re-extraction. Shape (n_frames, n_wavelengths, 
+            n_y, n_x). Required for spectral characterization.
+        flux_psf_full : ndarray, optional
+            Full PSF flux cube matching data_full dimensions. Required for spectral 
+            characterization.
+        pa : ndarray, optional
+            Position angles in degrees for each frame. Required for spectral 
+            characterization.
+        instrument : Instrument, optional
+            Instrument object containing wavelength and detector information.
+            If None, uses self.instrument.
+        temporal_components_fraction : float, optional
+            Fraction of temporal components to retain during PCA reduction for 
+            spectral characterization. Typical values are 0.1-0.5.
+        wavelength_indices : array_like, optional
+            Indices of wavelengths to process. If None, uses self.wavelength_indices.
+        inverse_variance_full : ndarray, optional
+            Inverse variance cube matching data_full dimensions for weighted fitting.
+        bad_frames : array_like, optional
+            Boolean array or indices of frames to exclude from analysis.
+        bad_pixel_mask_full : ndarray, optional
+            Bad pixel mask cube matching data_full dimensions.
+        xy_image_centers : ndarray, optional
+            Center coordinates for each frame. Shape (n_frames, 2).
+        amplitude_modulation_full : ndarray, optional
+            Amplitude modulation factors for each frame and wavelength.
+        file_paths : dict, optional
+            Dictionary specifying output file paths. If None, default paths are 
+            generated based on template name.
+        save : bool, optional
+            Whether to save intermediate detection products and results to disk.
+            Default is True.
+
+        Returns
+        -------
+        None
+            Results are stored in the template object as:
+            - template.companion_table : pandas.DataFrame or None
+                Complete table of all detected candidates with fitted parameters
+            - template.validated_companion_table : pandas.DataFrame or None
+                Subset of candidates passing validation criteria
+            - template.validated_companion_table_short : pandas.DataFrame or None
+                Condensed version of validated candidates with key columns only
+            - template.detection_products : dict
+                Detection maps and contrast curves from template matching
+
+        Notes
+        -----
+        The two-iteration detection process prevents bias in background statistics:
+        
+        1. **First iteration**: Detect candidates using initial (potentially biased) 
+           background statistics
+        2. **Masking phase**: Mask detected candidates to exclude them from 
+           background statistics calculation
+        3. **Second iteration**: Re-detect candidates using unbiased background 
+           statistics for final validation
+        
+        This approach is mathematically justified for robust detection in the 
+        presence of strong signals that could contaminate background noise estimates.
+        
+        Position coordinates are in image pixels with origin at (0,0) for absolute 
+        coordinates. Relative coordinates are measured from the image center.
+        Position angles are measured east of north in degrees.
+
+        Examples
+        --------
+        >>> # Basic template matching with default parameters
+        >>> analysis.run_template_matching(
+        ...     template=my_template,
+        ...     detection_threshold=5.0,
+        ...     data_full=data_cube,
+        ...     flux_psf_full=psf_cube,
+        ...     pa=position_angles,
+        ...     temporal_components_fraction=0.2
+        ... )
+        >>> 
+        >>> # Access results
+        >>> if analysis.templates['T-type'].validated_companion_table is not None:
+        ...     print(f"Found {len(analysis.templates['T-type'].validated_companion_table)} candidates")
+        """
         if file_paths is None:
             template_name = template.name
             file_paths = {}
@@ -3105,29 +3634,16 @@ class DetectionAnalysis(object):
             save=save,
         )
 
-        candidates = self.find_candidates_all_wavelengths(
+        candidates_initial = self.find_candidates_all_wavelengths(
             detection_cube=detection_cube,
             detection_products=detection_products,
             wavelength_indices=[0],
             candidate_threshold=candidate_threshold,
+            iterative_search_exclusion_radius=search_radius,
         )
-
-        # if self.reduction_parameters.yx_known_companion_position is not None:
-        #     self.reduction_parameters.yx_known_companion_position = np.vstack(
-        #         [self.reduction_parameters.yx_known_companion_position,
-        #          yx_position_relative])
-        # else:
-        #     self.reduction_parameters.yx_known_companion_position = np.expand_dims(
-        #         yx_position_relative, axis=0)
-
-        # _, candidates_fit_all_indices = analysis.complete_candidate_table(
-        #     candidates=candidates,
-        #     detection_cube=None, detection_products=None,
-        #     wavelength_indices=None, detection_threshold=detection_threshold,
-        #     candidate_threshold=candidate_threshold, search_radius=5)
-
-        _, candidates_fit_template = self.complete_candidate_table(
-            candidates=candidates,
+        
+        _, candidates_fit_initial = self.complete_candidate_table(
+            candidates=candidates_initial,
             detection_cube=detection_cube,
             detection_products=detection_products,
             wavelength_indices=[0],
@@ -3136,31 +3652,17 @@ class DetectionAnalysis(object):
             mask_deviating=mask_deviating,
         )
 
-        # fig = analysis.contrast_plot(detection_products=detection_products_matched,
-        #                              companion_table=None,
-        #                              plot_companions=False, savefig=False, show=True)
-
-        if candidates is None or len(candidates) == 0:
+        if candidates_initial is None or len(candidates_initial) == 0:
             template.companion_table = None
             template.validated_companion_table = None
             template.validated_companion_table_short = None
         else:
-            # companion_table, validated_companion_table = analysis.detection_summary(
-            #     candidates=candidates, candidates_fit=candidates_fit_template, candidate_spectra=None, use_spectra=False,
-            #     template_name=template_name, snr_threshold_spectrum=False,
-            #     snr_threshold=5., good_fraction_threshold=0.25,
-            #     theta_deviation_threshold=25.,
-            #     yx_fwhm_ratio_threshold=[1.1, 4.5])
-
-            # mask = candidates['snr'] > detection_threshold
-            yx_known_companion_position = candidates_fit_template["snr_image"][
+            yx_known_companion_position = candidates_fit_initial["snr_image"][
                 ["y_relative", "x_relative"]
             ].values  # [mask]
-            # yx_known_companion_position = np.unique(
-            #     validated_companion_table[['y_relative', 'x_relative']].values, axis=0)
 
             # Masking out detections
-            detection_products_matched = self.contrast_table_and_normalization(
+            detection_products_masked = self.contrast_table_and_normalization(
                 detection_cube=detection_cube,
                 cube_indices=[0], # only collapsed wavelength after template matching
                 yx_known_companion_position=yx_known_companion_position,
@@ -3170,26 +3672,27 @@ class DetectionAnalysis(object):
                 mask_above_sigma=None,
             )
 
-            candidates = self.find_candidates_all_wavelengths(
+            candidates_final = self.find_candidates_all_wavelengths(
                 detection_cube=detection_cube,
-                detection_products=detection_products_matched,
+                detection_products=detection_products_masked,
                 wavelength_indices=[0], # only collapsed wavelength after template matching
                 candidate_threshold=candidate_threshold,
+                iterative_search_exclusion_radius=search_radius,
             )
 
-            _, candidates_fit_template = self.complete_candidate_table(
-                candidates=candidates,
+            _, candidates_fit_final = self.complete_candidate_table(
+                candidates=candidates_final,
                 detection_cube=detection_cube,
-                detection_products=detection_products_matched,
+                detection_products=detection_products_masked,
                 wavelength_indices=[0], # only collapsed wavelength after template matching
                 candidate_threshold=candidate_threshold,
                 search_radius=search_radius,
                 mask_deviating=mask_deviating,
             )
-
+            
             print("Extracting candidate spectra.")
             candidate_spectra = self.extract_candidate_spectra(
-                yx_candidate_positions=candidates_fit_template["snr_image"][
+                yx_candidate_positions=candidates_fit_final["snr_image"][
                     ["y_relative", "x_relative"]
                 ].values,
                 temporal_components_fraction=temporal_components_fraction,
@@ -3207,8 +3710,8 @@ class DetectionAnalysis(object):
             )
 
             companion_table, validated_companion_table = self.detection_summary(
-                candidates=candidates,
-                candidates_fit=candidates_fit_template,
+                candidates=candidates_final,
+                candidates_fit=candidates_fit_final,
                 candidate_spectra=candidate_spectra,
                 use_spectra=True,
                 template_name=template_name,
@@ -3293,18 +3796,15 @@ class DetectionAnalysis(object):
             plt.axhline(y=0, color="k", linestyle="--", alpha=0.5)
             plt.xlabel("wavelength")
             plt.ylabel("contrast")
-            plt.legend()
+            # Only add legend if there are labeled artists
+            if len(candidate_indices) > 0:
+                plt.legend()
             plt.savefig(
                 os.path.join(
                     output_dir_matching, f"companion_spectra_{template_name}.pdf"
                 )
             )
             plt.close()
-
-            # analysis.contrast_table_and_normalization(save=False)
-            # _ = analysis.contrast_plot(
-            #     savefig=False, plot_companions=plot_companions,
-            #     companion_table=validated_companion_table, show=True)
 
             _ = self.contrast_plot(
                 detection_products=detection_products,
@@ -3334,7 +3834,7 @@ class DetectionAnalysis(object):
         detection_threshold=5.0,
         candidate_threshold=4.75,
         inner_mask_radius=1,
-        search_radius=5,
+        search_radius=15,
         good_fraction_threshold=0.05,
         theta_deviation_threshold=25,
         yx_fwhm_ratio_threshold=[1.1, 4.5],
@@ -3429,7 +3929,7 @@ class DetectionAnalysis(object):
             show=False,
         )
 
-    def combine_template_matched_companion_tables(self, validated_only=True):
+    def combine_template_matched_companion_tables(self, search_radius=15, validated_only=True):
         """
         Combines the template-matched companion tables into a single table.
 
@@ -3454,12 +3954,14 @@ class DetectionAnalysis(object):
                         f"{prefix}companion_table_{key}.csv",
                     )
                 companion_table = pd.read_csv(filename)
-                combined_detection_products.append(companion_table)
+                # Only add non-empty DataFrames
+                if not companion_table.empty:
+                    combined_detection_products.append(companion_table)
             except FileNotFoundError:
                 print(f"{filename} not found.")
 
-        if not all(v is None for v in combined_detection_products):
-            combined_companion_table = pd.concat(combined_detection_products)
+        if combined_detection_products:  # Check if list is not empty
+            combined_companion_table = pd.concat(combined_detection_products, ignore_index=True)
             unique_candidate_indices = []
             final_x_positions = []
             rejected = []
@@ -3474,7 +3976,6 @@ class DetectionAnalysis(object):
                 )
                 pos2 = combined_companion_table.iloc[unique_indices][["x_relative", "y_relative"]].values
                 dist = linalg.norm(pos1 - pos2, axis=1)
-                search_radius = 5
                 mask = dist < search_radius
                 if np.sum(mask) == 1:
                     unique_candidate_indices.append(idx)
@@ -3587,7 +4088,7 @@ class DetectionAnalysis(object):
         amplitude_modulation_full=None,
         candidate_threshold=4.75,
         detection_threshold=5.0,
-        search_radius=5,
+        search_radius=15,
         good_fraction_threshold=0.05,
         theta_deviation_threshold=25,
         yx_fwhm_ratio_threshold=[1.1, 4.5],
@@ -3724,7 +4225,9 @@ class DetectionAnalysis(object):
             plt.axhline(y=0, color="k", linestyle="--", alpha=0.5)
             plt.xlabel("wavelength")
             plt.ylabel("contrast")
-            plt.legend()
+            # Only add legend if there are labeled artists
+            if len(candidate_indices) > 0:
+                plt.legend()
             plt.savefig(
                 os.path.join(
                     self.reduction_parameters.result_folder, "companion_spectra.pdf"
@@ -3752,7 +4255,7 @@ class DetectionAnalysis(object):
         amplitude_modulation_full=None, 
         detection_threshold=5., candidate_threshold=4.75,
         use_spectral_correlation=False,
-        inner_mask_radius=1, search_radius=5, good_fraction_threshold=0.05,
+        inner_mask_radius=1, search_radius=15, good_fraction_threshold=0.05,
         theta_deviation_threshold=25, yx_fwhm_ratio_threshold=[1.1, 4.5],
         save_initial_detection_products=True):
 
@@ -3800,10 +4303,10 @@ class DetectionAnalysis(object):
             file_paths=None,
             save=True,
         )
-
+        
         self.plot_template_matched_contrasts()
-        self.combine_template_matched_companion_tables(validated_only=True)
-        self.combine_template_matched_companion_tables(validated_only=False)
+        self.combine_template_matched_companion_tables(search_radius=search_radius, validated_only=True)
+        self.combine_template_matched_companion_tables(search_radius=search_radius, validated_only=False)
 
         # spectrum = self.extract_candidate_spectra(
         #     temporal_components_fraction=temporal_components_fraction,
