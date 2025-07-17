@@ -2494,7 +2494,8 @@ class DetectionAnalysis(object):
             amplitude_modulation_full=amplitude_modulation_full,
             verbose=verbose,
         )
-        
+        from trap.embed_shell import ipsh
+        ipsh() 
         if return_all_results:
             return all_results
 

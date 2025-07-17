@@ -320,6 +320,11 @@ class Reduction_parameters(object):
         uncorrelated weighted average. Produces additional output files similar
         to the detection_image output.
         Default is False.
+    use_signal_weighting : boolean
+        Use signal-based weighting in contrast estimation. When True, pixels
+        with stronger expected signal contribute more to the final contrast
+        estimate, improving signal-to-noise ratio.
+        Default is False.
     contrast_curve : boolean
         Automatically generate contrast curve after reduction.
         Default is True.
@@ -404,6 +409,7 @@ class Reduction_parameters(object):
     make_reconstructed_lightcurve
     compute_residual_correlation
     use_residual_correlation
+    use_signal_weighting
     contrast_curve
     constrast_curve_sigma
     normalization_width
@@ -474,6 +480,7 @@ class Reduction_parameters(object):
             use_relative_position=False,
             compute_residual_correlation=False,
             use_residual_correlation=False,
+            use_signal_weighting=True,
             contrast_curve=True,
             contrast_curve_sigma=5.,
             normalization_width=3,
@@ -543,6 +550,7 @@ class Reduction_parameters(object):
         self.make_reconstructed_lightcurve = make_reconstructed_lightcurve
         self.compute_residual_correlation = compute_residual_correlation
         self.use_residual_correlation = use_residual_correlation
+        self.use_signal_weighting = use_signal_weighting
 
         self.contrast_curve = contrast_curve
         self.contrast_curve_sigma = contrast_curve_sigma
@@ -751,6 +759,7 @@ class TrapReductionConfig:
     make_reconstructed_lightcurve: bool = True
     compute_residual_correlation: bool = False
     use_residual_correlation: bool = False
+    use_signal_weighting: bool = True
     
     # Contrast curve and normalization
     contrast_curve: bool = True
