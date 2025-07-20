@@ -19,6 +19,8 @@ from scipy.optimize import curve_fit
 from sklearn.model_selection import train_test_split
 from tqdm import tqdm
 
+from trap import image_coordinates, pca_regression, plotting_tools, regressor_selection
+from trap.embed_shell import ipsh
 from trap.utils import (
     compute_empirical_correlation_matrix,
     det_max_ncomp_specific,
@@ -27,9 +29,6 @@ from trap.utils import (
     matern52_kernel,
 )
 
-from . import image_coordinates, pca_regression, plotting_tools, regressor_selection
-from .embed_shell import ipsh
-from trap.embed_shell import ipsh
 
 class Result(object):
     """Reduction results for all pixels contained in the `reduction_mask`
