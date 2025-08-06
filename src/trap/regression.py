@@ -19,6 +19,8 @@ from scipy.optimize import curve_fit
 from sklearn.model_selection import train_test_split
 from tqdm import tqdm
 
+from trap import image_coordinates, pca_regression, plotting_tools, regressor_selection
+from trap.embed_shell import ipsh
 from trap.utils import (
     compute_empirical_correlation_matrix,
     det_max_ncomp_specific,
@@ -26,9 +28,6 @@ from trap.utils import (
     matern32_kernel,
     matern52_kernel,
 )
-
-from . import image_coordinates, pca_regression, plotting_tools, regressor_selection
-from .embed_shell import ipsh
 
 
 class Result(object):
@@ -50,8 +49,10 @@ class Result(object):
             residuals=None, reduction_mask=None,
             data=None, number_of_pca_regressors=None,
             true_contrast=None, yx_center=None,
+            signal_weights=None,
             compute_residual_correlation=False,
-            use_residual_correlation=False):
+            use_residual_correlation=False,
+            use_signal_weighting=False):
         """Initializer.
 
         Parameters
@@ -80,6 +81,16 @@ class Result(object):
             The true contrast of an injected signal.
         yx_center : array_like, optional
             The center position of the image as used in reduction.
+        signal_weights : array_like, optional
+            Weights based on expected signal strength for each pixel in the
+            reduction mask. Used for signal-weighted averaging.
+        compute_residual_correlation : bool, optional
+            Whether to compute empirical correlation of residuals.
+        use_residual_correlation : bool, optional
+            Whether to use residual correlation in contrast estimation.
+        use_signal_weighting : bool, optional
+            Whether to use signal-based weighting in contrast estimation.
+            Default is False.
 
         """
 
@@ -94,6 +105,7 @@ class Result(object):
         self.residuals = residuals
         self.number_of_pca_regressors = number_of_pca_regressors
         self.true_contrast = true_contrast
+        self.signal_weights = signal_weights
         self.measured_contrast = None
         self.contrast_uncertainty = None
         self.snr = None
@@ -102,10 +114,11 @@ class Result(object):
         self.wrong_in_sigma = None
         self.compute_residual_correlation = compute_residual_correlation
         self.use_residual_correlation = use_residual_correlation
+        self.use_signal_weighting = use_signal_weighting
         if self.residuals is not None:
             self.good_residual_mask = self.compute_good_residual_mask()
         if reduced_result is not None:
-            self.compute_contrast_weighted_average()
+            self.compute_contrast_weighted_average(use_signal_weighting=self.use_signal_weighting)
         if yx_center is None and self.model_cube is not None:
             self.yx_center = (self.model_cube.shape[-2],
                               self.model_cube.shape[-1])
@@ -170,10 +183,10 @@ class Result(object):
 
     def __call__(self, sigma=None, clip_median=True, clip_std=True):
         if sigma is None:
-            self.compute_contrast_weighted_average(mask_outliers=False)
+            self.compute_contrast_weighted_average(mask_outliers=False, use_signal_weighting=self.use_signal_weighting)
         else:
             self.compute_good_residual_mask(sigma_for_outlier=sigma)
-            self.compute_contrast_weighted_average(mask_outliers=True)
+            self.compute_contrast_weighted_average(mask_outliers=True, use_signal_weighting=self.use_signal_weighting)
         print(self.__str__())
 
     def compute_good_residual_mask(self,
@@ -324,7 +337,7 @@ class Result(object):
             f=kernel_function, xdata=distance[1:3], ydata=empirical_correlation[1:3], p0=[1])
         return popt, pcov
 
-    def compute_contrast_weighted_average(self, contrast=None, variance=None, mask_outliers=False):
+    def compute_contrast_weighted_average(self, contrast=None, variance=None, mask_outliers=False, use_signal_weighting=False):
 
         if contrast is None:
             contrast = self.reduced_result[:, 0]
@@ -332,14 +345,21 @@ class Result(object):
             variance = self.reduced_result[:, 1]
 
         if self.reduced_result is None:
-            pass
+            return
 
-        if mask_outliers:
+        if mask_outliers and self.residuals is not None:
             mask = self.good_residual_mask
         else:
-            mask = np.ones(self.residuals.shape[0], dtype=bool)
+            # Create mask for all pixels
+            mask = np.ones(len(contrast), dtype=bool)
 
-        weight_for_variance = np.ones_like(contrast[mask]) / variance[mask]
+        if use_signal_weighting and self.signal_weights is not None:
+            # Signal-weighted inverse variance: w_i = s_i / σ_i²
+            weight_for_variance = self.signal_weights[mask] / variance[mask]
+        else:
+            # Standard inverse variance weighting: w_i = 1 / σ_i²
+            weight_for_variance = np.ones_like(contrast[mask]) / variance[mask]
+            
         self.measured_contrast = np.average(
             contrast[mask],
             weights=weight_for_variance)
@@ -643,7 +663,7 @@ def run_trap_with_model_temporal(
             if not local_model:
                 if number_of_pca_regressors != 0:
                     training_matrix = data[:, regressor_pool_mask_global]
-                    B_full, lambdas_full, S_full, V_full = pca_regression.compute_SVD(
+                    B_full, lambdas_full, _, _ = pca_regression.compute_SVD(
                         training_matrix, n_components=None, scaling=pca_scaling,
                         compute_robust_lambda=compute_robust_lambda)
                     B = B_full[:, :number_of_pca_regressors]
@@ -965,6 +985,19 @@ def run_trap_with_model_temporal(
     if not reduction_parameters.reduce_single_position:
         model_cube = None
 
+    # Calculate signal weights if model is available
+    if model is not None:
+        # Calculate signal weights based on time-integrated signal strength
+        signal_strength = np.sum(model[:, reduction_mask], axis=0)
+        # Normalize by mean of non-zero signals to avoid scale dependency
+        nonzero_signals = signal_strength[signal_strength > 0]
+        if len(nonzero_signals) > 0:
+            signal_weights = signal_strength / np.mean(nonzero_signals)
+        else:
+            signal_weights = np.ones_like(signal_strength)
+    else:
+        signal_weights = None
+
     if return_input_data:
         data_save = data
     else:
@@ -982,8 +1015,10 @@ def run_trap_with_model_temporal(
         number_of_pca_regressors=number_of_pca_regressors,
         true_contrast=true_contrast,
         yx_center=yx_center,
+        signal_weights=signal_weights,
         compute_residual_correlation=reduction_parameters.compute_residual_correlation,
-        use_residual_correlation=reduction_parameters.use_residual_correlation)
+        use_residual_correlation=reduction_parameters.use_residual_correlation,
+        use_signal_weighting=reduction_parameters.use_signal_weighting)
 
     return result
 
@@ -1219,6 +1254,19 @@ def run_trap_with_model_spatial(
     if not reduction_parameters.reduce_single_position:
         model_cube = None
 
+    # Calculate signal weights if model is available
+    if model is not None:
+        # For spatial case, use mean signal strength across time for each pixel
+        signal_strength = np.mean(model[:, reduction_mask], axis=0)
+        # Normalize by mean of non-zero signals to avoid scale dependency
+        nonzero_signals = signal_strength[signal_strength > 0]
+        if len(nonzero_signals) > 0:
+            signal_weights = signal_strength / np.mean(nonzero_signals)
+        else:
+            signal_weights = np.ones_like(signal_strength)
+    else:
+        signal_weights = None
+
     if return_input_data:
         data_save = data
     else:
@@ -1235,8 +1283,10 @@ def run_trap_with_model_spatial(
         number_of_pca_regressors=number_of_pca_regressors,
         true_contrast=true_contrast,
         yx_center=yx_center,
+        signal_weights=signal_weights,
         compute_residual_correlation=reduction_parameters.compute_residual_correlation,
-        use_residual_correlation=reduction_parameters.use_residual_correlation)
+        use_residual_correlation=reduction_parameters.use_residual_correlation,
+        use_signal_weighting=reduction_parameters.use_signal_weighting)
 
     result.psf_amplitude = psf_amplitude
     result.psf_sigma_squared = psf_sigma_squared
@@ -1616,6 +1666,19 @@ def run_trap_with_model_wavelength(
     if not reduction_parameters.reduce_single_position:
         model_cube = None
 
+    # Calculate signal weights if model is available
+    if model is not None:
+        # Calculate signal weights based on time-integrated signal strength
+        signal_strength = np.sum(model[:, reduction_mask], axis=0)
+        # Normalize by mean of non-zero signals to avoid scale dependency
+        nonzero_signals = signal_strength[signal_strength > 0]
+        if len(nonzero_signals) > 0:
+            signal_weights = signal_strength / np.mean(nonzero_signals)
+        else:
+            signal_weights = np.ones_like(signal_strength)
+    else:
+        signal_weights = None
+
     if return_input_data:
         data_save = data
     else:
@@ -1632,8 +1695,10 @@ def run_trap_with_model_wavelength(
         number_of_pca_regressors=number_of_pca_regressors,
         true_contrast=true_contrast,
         yx_center=yx_center,
+        signal_weights=signal_weights,
         compute_residual_correlation=reduction_parameters.compute_residual_correlation,
-        use_residual_correlation=reduction_parameters.use_residual_correlation)
+        use_residual_correlation=reduction_parameters.use_residual_correlation,
+        use_signal_weighting=reduction_parameters.use_signal_weighting)
 
     return result
 
@@ -1741,6 +1806,19 @@ def run_trap_with_model_temporal_optimized(
 
     residuals = (data[:, reduction_mask].T - fitted_model)
 
+    # Calculate signal weights if model is available
+    if model is not None and reduction_parameters.use_signal_weighting:
+        # Calculate signal weights based on time-integrated signal strength
+        signal_strength = np.sum(model[:, reduction_mask], axis=0)
+        # Normalize by mean of non-zero signals to avoid scale dependency
+        nonzero_signals = signal_strength[signal_strength > 0]
+        if len(nonzero_signals) > 0:
+            signal_weights = signal_strength / np.mean(nonzero_signals)
+        else:
+            signal_weights = np.ones_like(signal_strength)
+    else:
+        signal_weights = None
+
     result = Result(
         data=None,
         model_cube=None,
@@ -1752,10 +1830,13 @@ def run_trap_with_model_temporal_optimized(
         number_of_pca_regressors=reduction_parameters.number_of_pca_regressors,
         true_contrast=None,
         yx_center=None,
+        signal_weights=signal_weights,
         compute_residual_correlation=reduction_parameters.compute_residual_correlation,
-        use_residual_correlation=reduction_parameters.use_residual_correlation)
+        use_residual_correlation=reduction_parameters.use_residual_correlation,
+        use_signal_weighting=reduction_parameters.use_signal_weighting)
 
-    result.compute_contrast_weighted_average(mask_outliers=True)
+    result.compute_contrast_weighted_average(
+        mask_outliers=True, use_signal_weighting=reduction_parameters.use_signal_weighting)
     # Get rid of arrays to save memory when accomulating results for many models
     result.residuals = None
     result.reduced_result = None
