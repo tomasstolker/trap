@@ -464,7 +464,7 @@ class Reduction_parameters(object):
             variance_prior_scaling=1.,
             compute_inverse_once=True,
             autosize_masks_in_lambda_over_d=True,
-            reduction_mask_size_in_lambda_over_d=2.,
+            reduction_mask_size_in_lambda_over_d=1.,
             signal_mask_size_in_lambda_over_d=2.,
             reduction_mask_psf_size=21,
             signal_mask_psf_size=21,
@@ -675,7 +675,7 @@ class TrapReductionConfig:
     # Search region parameters
     search_region: Optional[Any] = None  # Binary mask of relative position to search for planets
     search_region_inner_bound: int = 1
-    search_region_outer_bound: int = 55
+    search_region_outer_bound: int = 85
     oversampling: int = 1
     
     # Data preprocessing
@@ -733,7 +733,7 @@ class TrapReductionConfig:
     
     # Mask parameters
     autosize_masks_in_lambda_over_d: bool = True
-    reduction_mask_size_in_lambda_over_d: float = 2.
+    reduction_mask_size_in_lambda_over_d: float = 1.
     signal_mask_size_in_lambda_over_d: float = 2.
     reduction_mask_psf_size: int = 19
     signal_mask_psf_size: int = 21
