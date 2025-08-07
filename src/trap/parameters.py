@@ -480,7 +480,7 @@ class Reduction_parameters(object):
             use_relative_position=False,
             compute_residual_correlation=False,
             use_residual_correlation=False,
-            use_signal_weighting=True,
+            use_signal_weighting=False,
             contrast_curve=True,
             contrast_curve_sigma=5.,
             normalization_width=3,
@@ -691,7 +691,8 @@ class TrapReductionConfig:
     data_crop_size: Optional[int] = None
     right_handed: bool = True
     include_noise: bool = False
-    
+    use_progress_bar: bool = True
+
     # Model selection
     temporal_model: bool = True
     temporal_plus_spatial_model: bool = False
@@ -759,7 +760,7 @@ class TrapReductionConfig:
     make_reconstructed_lightcurve: bool = True
     compute_residual_correlation: bool = False
     use_residual_correlation: bool = False
-    use_signal_weighting: bool = True
+    use_signal_weighting: bool = False
     
     # Contrast curve and normalization
     contrast_curve: bool = True
@@ -817,6 +818,7 @@ class ProcessingParameters:
     overwrite_reduction: bool = True
     overwrite_detection: bool = True
     verbose: bool = False
+    use_progress_bar: bool = True
 
     def merge(self, **kw) -> "ProcessingParameters":
         """Return a copy with selected fields overridden."""
