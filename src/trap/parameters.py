@@ -348,6 +348,8 @@ class Reduction_parameters(object):
         or get more information on a specific location in parameter space.
     verbose : boolean
         Produce additional output in console. Default is False.
+    use_progress_bar : boolean
+        Use a progress bar to indicate progress of the reduction.
 
     Attributes
     ----------
@@ -417,7 +419,7 @@ class Reduction_parameters(object):
     return_input_data
     plot_all_diagnostics
     verbose
-
+    use_progress_bar
     """
 
     def __init__(
@@ -486,7 +488,8 @@ class Reduction_parameters(object):
             normalization_width=3,
             companion_mask_radius=13,
             return_input_data=False,
-            verbose=False):
+            verbose=False,
+            use_progress_bar=True,):
 
         self.search_region = search_region
         self.search_region_inner_bound = search_region_inner_bound
@@ -560,6 +563,7 @@ class Reduction_parameters(object):
         self.return_input_data = return_input_data
         self.plot_all_diagnostics = plot_all_diagnostics
         self.verbose = verbose
+        self.use_progress_bar = use_progress_bar
 
 
 # ============================================================================
