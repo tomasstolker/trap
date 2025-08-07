@@ -675,8 +675,9 @@ def run_trap_search(
         if pb is not None:
             pb.print_until_done()
         results = ray.get(result_ids)
-        results == list(range(num_ticks))
-        num_ticks == ray.get(actor.get_counter.remote())
+        if actor is not None:
+            results == list(range(num_ticks))
+            num_ticks == ray.get(actor.get_counter.remote())
         results = [item for sublist in results for item in sublist]
 
         for idx, result in enumerate(results):
