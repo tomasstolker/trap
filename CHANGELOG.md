@@ -5,6 +5,22 @@ This project adheres to [Keep a Changelog](https://keepachangelog.com/) and [Sem
 
 ## [Unreleased]
 
+## [1.2.1] - 2025-08-10
+
+### Added
+- **Signal-based Weighting** – Introduced `use_signal_weighting` parameter in reduction pipeline for improved signal-to-noise ratio in contrast estimation by weighting pixels based on expected signal strength.
+- **Progress Bar Control** – Added `use_progress_bar` parameter to enable/disable progress feedback during long-running reductions, improving user experience and transparency.
+
+### Changed
+- **Reduction Mask Default** – Changed default `reduction_mask_size_in_lambda_over_d` from 2.0 to 1.0 pixels for better performance in typical science cases.
+- **Search Region Expansion** – Increased default `search_region_outer_bound` from 55 to 85 pixels to improve detection performance.
+- **Import Organization** – Switched from relative to absolute imports in regression module for better maintainability.
+
+### Fixed
+- **Candidate Validation** – Improved robustness in template matching and detection pipeline when no candidates survive second iteration, preventing downstream errors.
+
+---
+
 ## [1.2.0] - 2025-07-07
 
 ### Added
@@ -65,6 +81,8 @@ This project adheres to [Keep a Changelog](https://keepachangelog.com/) and [Sem
 ### Fixed
 - No known issues.
 
-[Unreleased]: https://github.com/m-samland/trap/compare/v1.1.0...HEAD 
+[Unreleased]: https://github.com/m-samland/trap/compare/v1.2.1...HEAD 
+[1.2.1]: https://github.com/m-samland/trap/compare/v1.2.0...v1.2.1
+[1.2.0]: https://github.com/m-samland/trap/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/m-samland/trap/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/m-samland/trap/releases/tag/v1.0.0
