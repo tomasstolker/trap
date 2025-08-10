@@ -320,6 +320,11 @@ class Reduction_parameters(object):
         uncorrelated weighted average. Produces additional output files similar
         to the detection_image output.
         Default is False.
+    use_signal_weighting : boolean
+        Use signal-based weighting in contrast estimation. When True, pixels
+        with stronger expected signal contribute more to the final contrast
+        estimate, improving signal-to-noise ratio.
+        Default is False.
     contrast_curve : boolean
         Automatically generate contrast curve after reduction.
         Default is True.
@@ -343,6 +348,8 @@ class Reduction_parameters(object):
         or get more information on a specific location in parameter space.
     verbose : boolean
         Produce additional output in console. Default is False.
+    use_progress_bar : boolean
+        Use a progress bar to indicate progress of the reduction.
 
     Attributes
     ----------
@@ -404,6 +411,7 @@ class Reduction_parameters(object):
     make_reconstructed_lightcurve
     compute_residual_correlation
     use_residual_correlation
+    use_signal_weighting
     contrast_curve
     constrast_curve_sigma
     normalization_width
@@ -411,7 +419,7 @@ class Reduction_parameters(object):
     return_input_data
     plot_all_diagnostics
     verbose
-
+    use_progress_bar
     """
 
     def __init__(
@@ -464,7 +472,7 @@ class Reduction_parameters(object):
             variance_prior_scaling=1.,
             compute_inverse_once=True,
             autosize_masks_in_lambda_over_d=True,
-            reduction_mask_size_in_lambda_over_d=2.,
+            reduction_mask_size_in_lambda_over_d=1.,
             signal_mask_size_in_lambda_over_d=2.,
             reduction_mask_psf_size=21,
             signal_mask_psf_size=21,
@@ -474,12 +482,14 @@ class Reduction_parameters(object):
             use_relative_position=False,
             compute_residual_correlation=False,
             use_residual_correlation=False,
+            use_signal_weighting=False,
             contrast_curve=True,
             contrast_curve_sigma=5.,
             normalization_width=3,
             companion_mask_radius=13,
             return_input_data=False,
-            verbose=False):
+            verbose=False,
+            use_progress_bar=True,):
 
         self.search_region = search_region
         self.search_region_inner_bound = search_region_inner_bound
@@ -543,6 +553,7 @@ class Reduction_parameters(object):
         self.make_reconstructed_lightcurve = make_reconstructed_lightcurve
         self.compute_residual_correlation = compute_residual_correlation
         self.use_residual_correlation = use_residual_correlation
+        self.use_signal_weighting = use_signal_weighting
 
         self.contrast_curve = contrast_curve
         self.contrast_curve_sigma = contrast_curve_sigma
@@ -552,6 +563,7 @@ class Reduction_parameters(object):
         self.return_input_data = return_input_data
         self.plot_all_diagnostics = plot_all_diagnostics
         self.verbose = verbose
+        self.use_progress_bar = use_progress_bar
 
 
 # ============================================================================
@@ -675,7 +687,7 @@ class TrapReductionConfig:
     # Search region parameters
     search_region: Optional[Any] = None  # Binary mask of relative position to search for planets
     search_region_inner_bound: int = 1
-    search_region_outer_bound: int = 55
+    search_region_outer_bound: int = 85
     oversampling: int = 1
     
     # Data preprocessing
@@ -683,7 +695,8 @@ class TrapReductionConfig:
     data_crop_size: Optional[int] = None
     right_handed: bool = True
     include_noise: bool = False
-    
+    use_progress_bar: bool = True
+
     # Model selection
     temporal_model: bool = True
     temporal_plus_spatial_model: bool = False
@@ -733,7 +746,7 @@ class TrapReductionConfig:
     
     # Mask parameters
     autosize_masks_in_lambda_over_d: bool = True
-    reduction_mask_size_in_lambda_over_d: float = 2.
+    reduction_mask_size_in_lambda_over_d: float = 1.
     signal_mask_size_in_lambda_over_d: float = 2.
     reduction_mask_psf_size: int = 19
     signal_mask_psf_size: int = 21
@@ -751,6 +764,7 @@ class TrapReductionConfig:
     make_reconstructed_lightcurve: bool = True
     compute_residual_correlation: bool = False
     use_residual_correlation: bool = False
+    use_signal_weighting: bool = False
     
     # Contrast curve and normalization
     contrast_curve: bool = True
@@ -808,6 +822,7 @@ class ProcessingParameters:
     overwrite_reduction: bool = True
     overwrite_detection: bool = True
     verbose: bool = False
+    use_progress_bar: bool = True
 
     def merge(self, **kw) -> "ProcessingParameters":
         """Return a copy with selected fields overridden."""

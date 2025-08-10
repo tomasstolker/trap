@@ -3690,6 +3690,17 @@ class DetectionAnalysis(object):
                 mask_deviating=mask_deviating,
             )
             
+            # Check if candidates survived the second iteration validation
+            if candidates_fit_final is None or len(candidates_fit_final) == 0:
+                print("Warning: No candidates survived second iteration validation")
+                print("This typically occurs when initial detections were false positives")
+                print("that did not meet the criteria when background statistics were corrected.")
+                template.companion_table = None
+                template.validated_companion_table = None
+                template.validated_companion_table_short = None
+                template.detection_products = detection_products
+                return
+            
             print("Extracting candidate spectra.")
             candidate_spectra = self.extract_candidate_spectra(
                 yx_candidate_positions=candidates_fit_final["snr_image"][
@@ -4111,7 +4122,7 @@ class DetectionAnalysis(object):
             detection_products=detection_products,
         )
 
-        if candidates is None:
+        if candidates is None or candidates_fit is None:
             companion_table = None
             validated_companion_table = None
             validated_companion_table_short = None

@@ -463,6 +463,7 @@ def run_trap_search(
     amplitude_modulation=None,
     contrast_map=None,
     readnoise=0.0,
+    use_progress_bar=False,
 ):
     """Iterates TRAP over grid of positions given by the boolean mask
     `search_region` in the `reduction_parameters` object.
@@ -498,6 +499,8 @@ def run_trap_search(
         and 'injection_sigma') in `~trap.parameters.Reduction_parameters`.
     readnoise : scalar
         The detector read noise (e rms/pix/readout).
+    use_progress_bar : bool
+        If True, a progress bar is shown during the reduction.
 
     Returns
     -------
@@ -612,8 +615,12 @@ def run_trap_search(
         if reduction_parameters.ncpus is None:
             reduction_parameters.ncpus = multiprocessing.cpu_count()
         num_ticks = len(relative_coords)
-        pb = ProgressBar(num_ticks)
-        actor = pb.actor
+        if use_progress_bar:
+            pb = ProgressBar(num_ticks)
+            actor = pb.actor
+        else:
+            pb = None
+            actor = None
 
         # Use more chunks than CPUs to prevent long idle time in case one job finishes quicker
         number_of_chunks = round(reduction_parameters.ncpus * 2)
@@ -665,10 +672,12 @@ def run_trap_search(
                     pba=actor,
                 )
             )
-        pb.print_until_done()
+        if pb is not None:
+            pb.print_until_done()
         results = ray.get(result_ids)
-        results == list(range(num_ticks))
-        num_ticks == ray.get(actor.get_counter.remote())
+        if actor is not None:
+            results == list(range(num_ticks))
+            num_ticks == ray.get(actor.get_counter.remote())
         results = [item for sublist in results for item in sublist]
 
         for idx, result in enumerate(results):
@@ -1149,6 +1158,7 @@ def run_complete_reduction(
     cross_validation=False,
     verbose=False,
     overwrite=False,
+    use_progress_bar=True,
 ):
     """Runs complete TRAP reduction on data and produces contrast and
     normalized detection maps as well as contrast curves. This is the most
@@ -1206,6 +1216,8 @@ def run_complete_reduction(
         If True, print out additional information. Default is False.
     overwrite : bool, optional
         If True, overwrite existing files. Default is False.
+    use_progress_bar : bool, optional
+        If True, display a progress bar during processing. Default is False.
 
     Returns
     -------
@@ -2053,6 +2065,7 @@ def run_complete_reduction(
                     amplitude_modulation=amplitude_modulation,
                     contrast_map=contrast_map,
                     readnoise=instrument.readnoise,
+                    use_progress_bar=use_progress_bar,
                 )
 
                 # NOTE: Moved out from run_trap_search
