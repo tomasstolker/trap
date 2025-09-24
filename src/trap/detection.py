@@ -1096,8 +1096,10 @@ def fit_2d_gaussian(
     rhophi = relative_yx_to_rhophi(relative_yx)
     phi = rhophi[1] * np.pi / 180.0
 
+    finite_mask = np.logical_and(np.isfinite(cutout.data), cutout.data != 0.0)
+
     g_init = models.Gaussian2D(
-        amplitude=np.nanmax(cutout.data),
+        amplitude=np.max(cutout.data[finite_mask]),
         x_mean=yx_position_cutout[1],
         y_mean=yx_position_cutout[0],
         x_stddev=x_stddev,
@@ -1112,7 +1114,6 @@ def fit_2d_gaussian(
     if fix_orientation:
         g_init.theta.fixed = True
 
-    finite_mask = np.logical_and(np.isfinite(cutout.data), cutout.data != 0.0)
     fitter = fitting.LevMarLSQFitter()
     par = fitter(g_init, xx[finite_mask], yy[finite_mask], cutout.data[finite_mask])
     model = par(xx, yy)
