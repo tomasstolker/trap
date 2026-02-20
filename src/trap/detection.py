@@ -2305,10 +2305,12 @@ class DetectionAnalysis(object):
                     .to_frame()
                     .T
                 )
-                entry.insert(loc=5, column="separation_sigma", value=np.nan)
-                entry.insert(loc=7, column="position_angle_sigma", value=np.nan)
+                entry.insert(loc=3, column="x_relative_sigma", value=np.nan)
+                entry.insert(loc=5, column="y_relative_sigma", value=np.nan)
+                entry.insert(loc=7, column="separation_sigma", value=np.nan)
+                entry.insert(loc=9, column="position_angle_sigma", value=np.nan)
                 entry.insert(
-                    loc=8, column="channels_above_threshold", value=np.array([1])
+                    loc=10, column="channels_above_threshold", value=np.array([1])
                 )
                 final_position_table.append(entry)
             else:
@@ -2342,17 +2344,27 @@ class DetectionAnalysis(object):
                     # Compute uncertainty based on standard deviation
                     std_dev_df = df.groupby("group").apply(np.std, axis=0, include_groups=False)
                     weighted_agg.insert(
+                        loc=3,
+                        column="x_relative_sigma",
+                        value=std_dev_df["x_relative"].values,
+                    )
+                    weighted_agg.insert(
                         loc=5,
+                        column="y_relative_sigma",
+                        value=std_dev_df["y_relative"].values,
+                    )
+                    weighted_agg.insert(
+                        loc=7,
                         column="separation_sigma",
                         value=std_dev_df["separation"].values,
                     )
                     weighted_agg.insert(
-                        loc=7,
+                        loc=9,
                         column="position_angle_sigma",
                         value=std_dev_df["position_angle"].values,
                     )
                     weighted_agg.insert(
-                        loc=8,
+                        loc=10,
                         column="channels_above_threshold",
                         value=np.array([len(df)]),
                     )
@@ -2375,7 +2387,9 @@ class DetectionAnalysis(object):
                         "x",
                         "y",
                         "x_relative",
+                        "x_relative_sigma",
                         "y_relative",
+                        "y_relative_sigma",
                         "separation",
                         "separation_sigma",
                         "position_angle",
@@ -2425,17 +2439,27 @@ class DetectionAnalysis(object):
             weighted_average_key_list
         ]
         candidates_fit["snr_image"].insert(
+            loc=6,
+            column="x_relative_sigma",
+            value=final_position_table["x_relative_sigma"].values,
+        )
+        candidates_fit["snr_image"].insert(
             loc=8,
+            column="y_relative_sigma",
+            value=final_position_table["y_relative_sigma"].values,
+        )
+        candidates_fit["snr_image"].insert(
+            loc=10,
             column="separation_sigma",
             value=final_position_table["separation_sigma"].values,
         )
         candidates_fit["snr_image"].insert(
-            loc=10,
+            loc=12,
             column="position_angle_sigma",
             value=final_position_table["position_angle_sigma"].values,
         )
         candidates_fit["snr_image"].insert(
-            loc=11,
+            loc=13,
             column="channels_above_threshold",
             value=final_position_table["channels_above_threshold"].values,
         )
@@ -2856,7 +2880,7 @@ class DetectionAnalysis(object):
         companion_table : pandas.DataFrame
             Complete table of all candidates with columns including:
             - Position: 'x', 'y', 'x_relative', 'y_relative', 'separation', 'position_angle'
-            - Uncertainties: 'separation_sigma', 'position_angle_sigma'
+            - Uncertainties: 'x_relative_sigma', 'y_relative_sigma', 'separation_sigma', 'position_angle_sigma'
             - PSF parameters: 'x_fwhm', 'y_fwhm', 'theta_free', 'yx_fwhm_ratio'
             - Detection metrics: 'norm_snr_fit', 'norm_snr_fit_free', 'peak_pixel_snr'
             - Validation metrics: 'theta_deviation', 'good_fraction_free'
@@ -2920,7 +2944,9 @@ class DetectionAnalysis(object):
                 "x",
                 "y",
                 "x_relative",
+                "x_relative_sigma",
                 "y_relative",
+                "y_relative_sigma",
                 "separation",
                 "separation_sigma",
                 "position_angle",
@@ -3768,7 +3794,9 @@ class DetectionAnalysis(object):
                     "x",
                     "y",
                     "x_relative",
+                    "x_relative_sigma",
                     "y_relative",
+                    "y_relative_sigma",
                     "separation",
                     "separation_sigma",
                     "position_angle",
@@ -4029,7 +4057,9 @@ class DetectionAnalysis(object):
                     "x",
                     "y",
                     "x_relative",
+                    "x_relative_sigma",
                     "y_relative",
+                    "y_relative_sigma",
                     "separation",
                     "separation_sigma",
                     "position_angle",
@@ -4054,7 +4084,9 @@ class DetectionAnalysis(object):
                     "x",
                     "y",
                     "x_relative",
+                    "x_relative_sigma",
                     "y_relative",
+                    "y_relative_sigma",
                     "separation",
                     "separation_sigma",
                     "position_angle",
@@ -4198,7 +4230,9 @@ class DetectionAnalysis(object):
                     "x",
                     "y",
                     "x_relative",
+                    "x_relative_sigma",
                     "y_relative",
+                    "y_relative_sigma",
                     "separation",
                     "separation_sigma",
                     "position_angle",
