@@ -10,9 +10,9 @@ classifiers = [
     "Operating System :: OS Independent",
     "Intended Audience :: Science/Research",
 ]
-requires-python = ">=3.11, <3.13"
+requires-python = ">=3.11, <3.14"
 dependencies = [
-    "numpy>=1.22,<3.0", 
+    "numpy>=2,<3", 
     "scipy",
     "matplotlib",
     "numba",
