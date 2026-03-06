@@ -30,10 +30,7 @@ from species import SpeciesInit
 from species.data.database import Database
 from species.read.read_model import ReadModel
 
-try:
-    from tqdm.notebook import tqdm
-except ImportError:
-    from tqdm import tqdm
+from tqdm.auto import tqdm
 
 from trap import image_coordinates, pca_regression, regressor_selection
 from trap.image_coordinates import absolute_yx_to_relative_yx, relative_yx_to_rhophi
