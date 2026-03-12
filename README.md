@@ -1,6 +1,6 @@
 # TRAP – Temporal Reference Analysis for Planets
 
-[![Python](https://img.shields.io/badge/Python-3.11%2C%203.12-brightgreen.svg)](https://github.com/m-samland/trap)
+[![Python](https://img.shields.io/badge/Python-3.11%2C%203.12%2C%203.13-brightgreen.svg)](https://github.com/m-samland/trap)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/m-samland/trap/blob/main/LICENSE)
 [![DOI](https://img.shields.io/badge/DOI-10.1051%2F0004--6361%2F201937308-blue)](https://doi.org/10.1051/0004-6361/201937308)
 
@@ -23,7 +23,7 @@
 
 ## Installation
 
-TRAP requires **Python 3.11 or 3.12**. It can be installed directly from GitHub:
+TRAP requires **Python 3.11, 3.12, or 3.13**. It can be installed directly from GitHub:
 
 ```bash
 pip install git+https://github.com/m-samland/trap

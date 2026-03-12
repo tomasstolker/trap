@@ -663,6 +663,7 @@ class DetectionParameters:
     detection_threshold: float = 5.0
     use_spectral_correlation: bool = False
     stellar_parameters: StellarParameters = field(default_factory=StellarParameters)
+    use_gaia_stellar_parameters: bool = True  # Auto-populate teff/logg/feh from Gaia columns in observation table
     search_radius: int = 11
     inner_mask_radius: int = 1
     good_fraction_threshold: float = 0.05
