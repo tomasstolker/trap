@@ -209,7 +209,7 @@ def make_regressor_pool_for_pixel(
         reduction_parameters, yx_pixel, yx_dim, yx_center=None,
         signal_mask=None, known_companion_mask=None,
         bad_pixel_mask=None, additional_regressors=None,
-        **kwargs):
+        runtime=None, **kwargs):
     """ Given a certain pixel position, an array with the dimension
     of the image is returned marking the for this pixelregressors as True.
 
