@@ -25,6 +25,13 @@ from trap import (
     regression,
     regressor_selection,
 )
+from trap.parameters import (
+    Reduction_parameters,
+    ReductionRuntimeState,
+    TrapReductionConfig,
+    _to_reduction_config,
+    build_runtime_state,
+)
 from trap.utils import (
     ProgressBar,
     crop_box_from_3D_cube,
@@ -38,6 +45,8 @@ from trap.utils import (
 
 logging.getLogger("ray").setLevel(logging.WARNING)
 
+
+
 # @ ray.remote
 def trap_one_position(
     guess_position,
@@ -46,6 +55,7 @@ def trap_one_position(
     pa,
     reduction_parameters,
     known_companion_mask,
+    runtime=None,
     inverse_variance=None,
     bad_pixel_mask=None,
     yx_center=None,
@@ -109,17 +119,17 @@ def trap_one_position(
         amplitude_modulation = np.ones(data.shape[0])
 
     if guess_position is not None:
-        reduction_parameters.guess_position = guess_position
         position_absolute = image_coordinates.relative_yx_to_absolute_yx(
             guess_position, yx_center
         ).astype("int")
-    signal_position = np.array(reduction_parameters.guess_position)
+    signal_position = np.array(guess_position)
 
     if contrast_map is not None:
-        reduction_parameters.true_contrast = contrast_map[
+        true_contrast = contrast_map[
             position_absolute[0], position_absolute[1]
         ]
-    true_contrast = reduction_parameters.true_contrast
+    else:
+        true_contrast = reduction_parameters.true_contrast
     # if reduction_parameters.true_position is not None:
     #     true_rhophi = image_coordinates.relative_yx_to_rhophi(
     #         reduction_parameters.true_position)
@@ -136,7 +146,7 @@ def trap_one_position(
         psf_model=flux_psf,
         image_center=yx_center_injection,
         norm=amplitude_modulation,
-        yx_anamorphism=reduction_parameters.yx_anamorphism,
+        yx_anamorphism=runtime.yx_anamorphism,
         right_handed=reduction_parameters.right_handed,
         subpixel=True,
         remove_interpolation_artifacts=True,
@@ -154,19 +164,19 @@ def trap_one_position(
     signal_mask_local = injected_model_cube > 0.0
     signal_mask = np.any(signal_mask_local, axis=0)
     if (
-        reduction_parameters.reduction_mask_psf_size
-        == reduction_parameters.signal_mask_psf_size
+        runtime.reduction_mask_psf_size
+        == runtime.signal_mask_psf_size
     ):
         # reduction_mask_local = signal_mask_local
         reduction_mask = signal_mask
     else:
         reduction_mask = regressor_selection.make_mask_from_psf_track(
             yx_position=signal_position,
-            psf_size=reduction_parameters.reduction_mask_psf_size,
+            psf_size=runtime.reduction_mask_psf_size,
             pa=pa,
             image_size=data.shape[-1],
             image_center=yx_center_injection,
-            yx_anamorphism=reduction_parameters.yx_anamorphism,
+            yx_anamorphism=runtime.yx_anamorphism,
             right_handed=reduction_parameters.right_handed,
             return_cube=False,
         )
@@ -250,6 +260,7 @@ def trap_one_position(
 
         regressor_pool_mask = regressor_selection.make_regressor_pool_for_pixel(
             reduction_parameters=reduction_parameters,
+            runtime=runtime,
             yx_pixel=planet_absolute_yx_pos,
             yx_dim=yx_dim,
             yx_center=yx_center,
@@ -268,6 +279,7 @@ def trap_one_position(
                 model=model,
                 pa=pa,
                 reduction_parameters=reduction_parameters,
+                runtime=runtime,
                 reduction_mask=reduction_mask_used,
                 regressor_pool_mask=regressor_pool_mask,
                 regressor_matrix=None,
@@ -282,6 +294,7 @@ def trap_one_position(
                 # model=None,
                 pa=pa,
                 reduction_parameters=reduction_parameters,
+                runtime=runtime,
                 planet_relative_yx_pos=signal_position,
                 reduction_mask=reduction_mask_used,
                 known_companion_mask=known_companion_mask,
@@ -303,6 +316,7 @@ def trap_one_position(
                 model=model,
                 pa=pa,
                 reduction_parameters=reduction_parameters,
+                runtime=runtime,
                 reduction_mask=reduction_mask_used,
                 regressor_pool_mask=regressor_pool_mask,
                 regressor_matrix=None,
@@ -326,6 +340,7 @@ def trap_one_position(
             model=model,
             pa=pa,
             reduction_parameters=reduction_parameters,
+            runtime=runtime,
             planet_relative_yx_pos=signal_position,
             reduction_mask=reduction_mask_used,
             yx_center=yx_center,
@@ -362,6 +377,7 @@ def trap_one_position(
                 model=None,
                 pa=pa,
                 reduction_parameters=reduction_parameters,
+                runtime=runtime,
                 planet_relative_yx_pos=signal_position,
                 reduction_mask=reduction_mask_used,
                 known_companion_mask=known_companion_mask,
@@ -415,9 +431,8 @@ def trap_one_position(
                 reduction_mask_used, ~bad_residual_mask
             )
 
-        reduction_parameters_alternative = copy(reduction_parameters)
-        reduction_parameters_alternative.spatial_components_fraction = (
-            reduction_parameters.spatial_components_fraction_after_trap
+        reduction_parameters_alternative = reduction_parameters.merge(
+            spatial_components_fraction=reduction_parameters.spatial_components_fraction_after_trap,
         )
 
         result = regression.run_trap_with_model_spatial(
@@ -425,6 +440,7 @@ def trap_one_position(
             model=model,
             pa=pa,
             reduction_parameters=reduction_parameters_alternative,
+            runtime=runtime,
             planet_relative_yx_pos=signal_position,
             reduction_mask=reduction_mask_used,
             yx_center=yx_center,
@@ -453,6 +469,7 @@ def run_trap_search(
     pa,
     reduction_parameters,
     known_companion_mask,
+    runtime=None,
     inverse_variance=None,
     bad_pixel_mask=None,
     yx_center=None,
@@ -594,7 +611,7 @@ def run_trap_search(
             (43, int(yx_dim[0] * oversampling), int(yx_dim[1] * oversampling))
         )
 
-    search_region = reduction_parameters.search_region
+    search_region = runtime.search_region if runtime is not None else reduction_parameters.search_region
     search_coordinates = np.argwhere(search_region) * oversampling
     # relative coordinates to output image center (i.e. position of star)
     relative_coords = np.array(
@@ -608,9 +625,8 @@ def run_trap_search(
         )
     )
     print("Number of positions: {}".format(len(relative_coords)))
+    ncpus = runtime.ncpus if runtime is not None else (reduction_parameters.ncpus or multiprocessing.cpu_count())
     if reduction_parameters.use_multiprocess:
-        if reduction_parameters.ncpus is None:
-            reduction_parameters.ncpus = multiprocessing.cpu_count()
         num_ticks = len(relative_coords)
         if use_progress_bar:
             pb = ProgressBar(num_ticks)
@@ -620,7 +636,7 @@ def run_trap_search(
             actor = None
 
         # Use more chunks than CPUs to prevent long idle time in case one job finishes quicker
-        number_of_chunks = round(reduction_parameters.ncpus * 2)
+        number_of_chunks = round(ncpus * 2)
 
         (
             search_coordinates,
@@ -659,6 +675,7 @@ def run_trap_search(
                     flux_psf=flux_psf_id,
                     pa=pa_id,
                     reduction_parameters=reduction_parameters,
+                    runtime=runtime,
                     known_companion_mask=known_companion_mask_id,
                     bad_pixel_mask=bad_pixel_mask_id,
                     yx_center=yx_center,
@@ -756,6 +773,7 @@ def run_trap_search(
                 pa=pa,
                 reduction_parameters=reduction_parameters,
                 known_companion_mask=known_companion_mask,
+                runtime=runtime,
                 bad_pixel_mask=bad_pixel_mask,
                 yx_center=yx_center,
                 yx_center_injection=yx_center_injection,
@@ -841,6 +859,7 @@ def multi_position_cross_validation(
     pa,
     reduction_parameters,
     known_companion_mask,
+    runtime=None,
     inverse_variance=None,
     bad_pixel_mask=None,
     result_name=None,
@@ -943,19 +962,9 @@ def multi_position_cross_validation(
 
     print("Number of positions: {}".format(len(relative_coords)))
     if reduction_parameters.use_multiprocess:
-        if reduction_parameters.ncpus is None:
-            reduction_parameters.ncpus = multiprocessing.cpu_count()
         num_ticks = len(relative_coords)
         pb = ProgressBar(num_ticks)
         actor = pb.actor
-
-        # Use more chunks than CPUs to prevent long idle time in case one job finishes quicker
-        # number_of_chunks = round(reduction_parameters.ncpus * 2)
-
-        # search_coordinates, relative_coords, relative_coords_regions, iteration, separation_equalized = shuffle_and_equalize_relative_positions(
-        #     search_coordinates, relative_coords, number_of_chunks,
-        #     max_separation_deviation=2, max_iterations=50, rng=None)
-        # print('Number of positions per chunk: {}'.format(len(relative_coords_regions[0])))
 
         a = datetime.datetime.now()
         data_id = ray.put(data)
@@ -977,6 +986,7 @@ def multi_position_cross_validation(
                     flux_psf=flux_psf_id,
                     pa=pa_id,
                     reduction_parameters=reduction_parameters,
+                    runtime=runtime,
                     known_companion_mask=known_companion_mask_id,
                     bad_pixel_mask=bad_pixel_mask_id,
                     yx_center=yx_center,
@@ -1015,6 +1025,7 @@ def multi_position_cross_validation(
                 pa=pa,
                 reduction_parameters=reduction_parameters,
                 known_companion_mask=known_companion_mask,
+                runtime=runtime,
                 bad_pixel_mask=bad_pixel_mask,
                 yx_center=yx_center,
                 yx_center_injection=yx_center_injection,
@@ -1040,6 +1051,7 @@ def trap_search_region(
     pa,
     reduction_parameters,
     known_companion_mask,
+    runtime=None,
     inverse_variance=None,
     bad_pixel_mask=None,
     result_name=None,
@@ -1113,6 +1125,7 @@ def trap_search_region(
             pa=pa,
             reduction_parameters=reduction_parameters,
             known_companion_mask=known_companion_mask,
+            runtime=runtime,
             bad_pixel_mask=bad_pixel_mask,
             yx_center=yx_center,
             yx_center_injection=yx_center_injection,
@@ -1233,12 +1246,8 @@ def run_complete_reduction(
 
     """
 
-    # Handle both legacy Reduction_parameters and modern TrapConfig
-    # Convert TrapConfig to legacy format for compatibility
-    if hasattr(reduction_parameters, 'get_reduction_parameters'):
-        # This is a TrapConfig object, convert to legacy format
-        reduction_parameters = reduction_parameters.get_reduction_parameters()
-    # If it's already a Reduction_parameters object, use it as-is
+    # Convert any input type to TrapReductionConfig (frozen, immutable)
+    reduction_parameters = _to_reduction_config(reduction_parameters)
 
     if bad_frames is None:
         bad_frames = []
@@ -1266,16 +1275,6 @@ def run_complete_reduction(
         #     verbose=True)
 
     instrument.compute_fwhm()
-    
-    if reduction_parameters.reduce_single_position:
-        guess_position_separation = np.sqrt(
-            reduction_parameters.guess_position[0] ** 2
-            + reduction_parameters.guess_position[1] ** 2
-        )
-        print("Adjusting outer bound to fit guess position")
-        reduction_parameters.search_region_outer_bound = int(
-            np.ceil(guess_position_separation) + 5
-        )
 
     if reduction_parameters.autosize_masks_in_lambda_over_d:
         assert (
@@ -1291,10 +1290,6 @@ def run_complete_reduction(
             size_in_lamda_over_d=reduction_parameters.reduction_mask_size_in_lambda_over_d,
         )
     else:
-        assert (
-            reduction_parameters.signal_mask_size
-            >= reduction_parameters.reduction_mask_size
-        ), "Signal mask size must be >= reduction mask size"
         stamp_sizes = np.repeat(
             reduction_parameters.signal_mask_psf_size, len(instrument.wavelengths)
         )
@@ -1354,59 +1349,16 @@ def run_complete_reduction(
                 "The center varies by a maximum of in x or y: {}".format(max_shift / 2)
             )
         # print("Center variation: {}".format(np.std(amplitude_modulation_full, axis=0)))
-    reduction_parameters.yx_anamorphism = np.array(reduction_parameters.yx_anamorphism)
 
-    # Decide crop size for images
-    if reduction_parameters.data_auto_crop:
-        # Automatically determine smallest size to crop data
-        reduction_parameters.data_crop_size = np.ceil(
-            reduction_parameters.search_region_outer_bound * 2
-            + np.max(stamp_sizes) * np.sqrt(2)
-            + max_shift
-        )
-        if reduction_parameters.add_radial_regressors:
-            # NOTE: Hardcoded binary dilation used right now.
-            reduction_parameters.data_crop_size += 14
-        reduction_parameters.data_crop_size = int(
-            round_up_to_odd(reduction_parameters.data_crop_size)
-        )
-        yx_dim = (
-            reduction_parameters.data_crop_size,
-            reduction_parameters.data_crop_size,
-        )
-        if reduction_parameters.data_crop_size > data_full.shape[-1]:
-            raise ValueError(
-                f"Data crop size {reduction_parameters.data_crop_size} is larger than input image size: {data_full.shape[-1]}"
-            )
-        print(
-            "Auto crop size cropped data to: {}".format(
-                reduction_parameters.data_crop_size
-            )
-        )
-    else:
-        if reduction_parameters.search_region is None:
-            if reduction_parameters.data_crop_size is None:
-                yx_dim = (data_full.shape[-2], data_full.shape[-1])
-            else:
-                yx_dim = (
-                    reduction_parameters.data_crop_size,
-                    reduction_parameters.data_crop_size,
-                )
-        else:
-            yx_dim = (
-                reduction_parameters.search_region.shape[-2],
-                reduction_parameters.search_region.shape[-1],
-            )
-    data_crop_size = reduction_parameters.data_crop_size
-
-    if reduction_parameters.search_region is None:
-        reduction_parameters.search_region = regressor_selection.make_annulus_mask(
-            reduction_parameters.search_region_inner_bound,
-            reduction_parameters.search_region_outer_bound,
-            yx_dim=yx_dim,
-            oversampling=reduction_parameters.oversampling,
-            yx_center=None,
-        )
+    # Build runtime state (replaces all mutations of reduction_parameters)
+    runtime = build_runtime_state(
+        config=reduction_parameters,
+        data_shape=data_full.shape,
+        stamp_sizes=stamp_sizes,
+        stamp_sizes_reduction=stamp_sizes_reduction,
+        max_shift=max_shift,
+    )
+    data_crop_size = runtime.data_crop_size
 
     # Configure PSF amplitude variation
     if amplitude_modulation_full is not None:
@@ -1420,60 +1372,6 @@ def run_complete_reduction(
         print(
             "Amplitude variation: {}".format(np.std(amplitude_modulation_full, axis=1))
         )
-
-    # Configure known companion information
-    if reduction_parameters.yx_known_companion_position is not None:
-        reduction_parameters.yx_known_companion_position = np.array(
-            reduction_parameters.yx_known_companion_position
-        )
-        # If ndim == 1, just one companion present, make new dimension for more companions
-        if reduction_parameters.yx_known_companion_position.ndim == 1:
-            reduction_parameters.yx_known_companion_position = np.expand_dims(
-                reduction_parameters.yx_known_companion_position, axis=0
-            )
-        elif reduction_parameters.yx_known_companion_position.ndim > 2:
-            raise ValueError(
-                "Dimensionality of known companion position array too large."
-            )
-
-    if (
-        reduction_parameters.known_companion_contrast is not None
-        and reduction_parameters.remove_known_companions
-    ):
-        assert (
-            reduction_parameters.yx_known_companion_position is not None
-        ), "No position for known companion given."
-
-        reduction_parameters.known_companion_contrast = np.array(
-            reduction_parameters.known_companion_contrast
-        )
-
-        number_of_wavelengths = data_full.shape[0]
-        number_of_companions = reduction_parameters.yx_known_companion_position.shape[0]
-
-        assert (
-            reduction_parameters.known_companion_contrast.shape[-1]
-            == number_of_companions
-        ), "The same number of known companion position and contrasts need to be provided."
-
-        if (
-            reduction_parameters.known_companion_contrast.ndim == 1
-            and number_of_wavelengths == 1
-        ):
-            reduction_parameters.known_companion_contrast = np.expand_dims(
-                reduction_parameters.known_companion_contrast, axis=0
-            )
-        elif (
-            reduction_parameters.known_companion_contrast.ndim == 1
-            and number_of_wavelengths > 1
-        ):
-            raise ValueError(
-                "For multi-wavelength data, a known contrast has to be defined for every wavelength."
-            )
-        elif reduction_parameters.known_companion_contrast.ndim > 2:
-            raise ValueError(
-                "Dimensionality of known companion contrast array too large."
-            )
 
     # Configure number of principal components
 
@@ -1493,7 +1391,12 @@ def run_complete_reduction(
     # Save parameters
     if not reduction_parameters.reduce_single_position:
         save_object(instrument, os.path.join(result_folder, "instrument.obj"))
-        save_object(reduction_parameters, os.path.join(result_folder, "reduction_parameters.obj"))
+        # Save both modern config and legacy format for detection.py backward compat
+        save_object(reduction_parameters, os.path.join(result_folder, "reduction_config.obj"))
+        save_object(
+            reduction_parameters.to_reduction_parameters(),
+            os.path.join(result_folder, "reduction_parameters.obj"),
+        )
 
     assert (
         flux_psf_full.shape[0] == data_full.shape[0] == len(instrument.wavelengths)
@@ -1517,15 +1420,11 @@ def run_complete_reduction(
         and not reduction_parameters.reduce_single_position
     ):
         ray.init(
-            num_cpus=min(reduction_parameters.ncpus, multiprocessing.cpu_count()),
+            num_cpus=min(runtime.ncpus, multiprocessing.cpu_count()),
             # log_to_driver=False,
             logging_level=logging.WARNING)
-        
+
     for comp_index, ncomp in enumerate(number_of_components):
-        reduction_parameters.number_of_pca_regressors = ncomp
-        reduction_parameters.temporal_components_fraction = (
-            temporal_components_fraction[comp_index]
-        )
         print(
             "Number of principal comp. used: {} of {}".format(ncomp, data_full.shape[1])
         )
@@ -1550,7 +1449,14 @@ def run_complete_reduction(
             )
             if prefix is None:
                 prefix = ""
-            reduction_parameters.fwhm = instrument.fwhm[wavelength_index].value
+            # Update per-iteration runtime state
+            runtime = runtime.for_iteration(
+                number_of_pca_regressors=ncomp,
+                temporal_components_fraction=temporal_components_fraction[comp_index],
+                fwhm=instrument.fwhm[wavelength_index].value,
+                reduction_mask_psf_size=int(stamp_sizes_reduction[wavelength_index]),
+                signal_mask_psf_size=int(stamp_sizes[wavelength_index]),
+            )
             basename = {}
             if reduction_parameters.inject_fake:
                 basename[
@@ -1750,15 +1656,6 @@ def run_complete_reduction(
             #         ),
             #     )
 
-            # if reduction_parameters.autosize_masks_in_lambda_over_d:
-            reduction_parameters.reduction_mask_psf_size = int(
-                stamp_sizes_reduction[wavelength_index]
-            )
-            reduction_parameters.signal_mask_psf_size = int(
-                stamp_sizes[wavelength_index]
-            )
-            # reduction_parameters.signal_mask_psf_size = int(stamp_sizes[wavelength_index])
-
             # This block defines yx_center which gives the center of the output file
             # based on cropping or no cropping
             if yx_center_full is None:
@@ -1779,8 +1676,8 @@ def run_complete_reduction(
             # Do this for each wavelength separately to account for PSF size
             # and differing center position
             if (
-                reduction_parameters.yx_known_companion_position is not None
-                and len(reduction_parameters.yx_known_companion_position) > 0
+                runtime.yx_known_companion_position is not None
+                and len(runtime.yx_known_companion_position) > 0
             ):
                 if yx_center_injection_full is not None:
                     yx_center_before_crop = yx_center_injection_full[
@@ -1790,15 +1687,15 @@ def run_complete_reduction(
                     yx_center_before_crop = None
 
                 known_companion_masks = []
-                for yx_pos in reduction_parameters.yx_known_companion_position:
+                for yx_pos in runtime.yx_known_companion_position:
                     # TODO: CHECK
                     known_companion_mask = regressor_selection.make_mask_from_psf_track(
                         yx_position=yx_pos,
-                        psf_size=reduction_parameters.signal_mask_psf_size,
+                        psf_size=runtime.signal_mask_psf_size,
                         pa=pa,
                         image_size=data_full.shape[-1],
                         image_center=yx_center_before_crop,
-                        yx_anamorphism=reduction_parameters.yx_anamorphism,
+                        yx_anamorphism=runtime.yx_anamorphism,
                         right_handed=reduction_parameters.right_handed,
                         return_cube=False,
                     )
@@ -1943,30 +1840,30 @@ def run_complete_reduction(
                 # NOTE: This currently doesn't remove photon noise from variance map
                 # NOTE: Should change to faster implementation of `inject_model_into_data`
 
-                for companion_index, known_companion_contrast in enumerate(
-                    reduction_parameters.known_companion_contrast[wavelength_index]
+                for companion_index, kc_contrast in enumerate(
+                    runtime.known_companion_contrast[wavelength_index]
                 ):
                     # NOTE: Check format of known_companion_contrast and amplitude_modulation
-                    known_companion_contrast *= amplitude_modulation
+                    kc_contrast = kc_contrast * amplitude_modulation
 
                     data = makesource.addsource(
                         data,
-                        reduction_parameters.yx_known_companion_position[
+                        runtime.yx_known_companion_position[
                             companion_index
                         ],
                         pa,
                         flux_psf,
                         image_center=yx_center_injection,
-                        norm=-1 * known_companion_contrast,
+                        norm=-1 * kc_contrast,
                         jitter=0,
                         poisson_noise=False,
-                        yx_anamorphism=reduction_parameters.yx_anamorphism,
+                        yx_anamorphism=runtime.yx_anamorphism,
                         right_handed=reduction_parameters.right_handed,
                         subpixel=True,
                         verbose=False,
                     )
 
-            print("PSF Size: {}".format(reduction_parameters.reduction_mask_psf_size))
+            print("PSF Size: {}".format(runtime.reduction_mask_psf_size))
             if reduction_parameters.reduce_single_position:
                 results = trap_one_position(
                     reduction_parameters.guess_position,
@@ -1976,6 +1873,7 @@ def run_complete_reduction(
                     pa=pa,
                     reduction_parameters=reduction_parameters,
                     known_companion_mask=known_companion_mask,
+                    runtime=runtime,
                     bad_pixel_mask=bad_pixel_mask,
                     yx_center=yx_center,
                     yx_center_injection=yx_center_injection,
@@ -2027,6 +1925,7 @@ def run_complete_reduction(
                         pa=pa,
                         reduction_parameters=reduction_parameters,
                         known_companion_mask=known_companion_mask,
+                        runtime=runtime,
                         bad_pixel_mask=bad_pixel_mask,
                         yx_center=yx_center,
                         yx_center_injection=yx_center_injection,
@@ -2056,6 +1955,7 @@ def run_complete_reduction(
                     pa=pa,
                     reduction_parameters=reduction_parameters,
                     known_companion_mask=known_companion_mask,
+                    runtime=runtime,
                     bad_pixel_mask=bad_pixel_mask,
                     yx_center=yx_center,
                     yx_center_injection=yx_center_injection,

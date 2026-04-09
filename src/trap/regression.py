@@ -501,6 +501,7 @@ class Result(object):
 def run_trap_with_model_temporal(
         data, model, pa, reduction_parameters,
         planet_relative_yx_pos, reduction_mask,
+        runtime=None,
         yx_center=None,
         yx_center_injection=None,
         inverse_variance_reduction_area=None,
@@ -585,7 +586,7 @@ def run_trap_with_model_temporal(
     """
 
     local_model = reduction_parameters.local_temporal_model
-    number_of_pca_regressors = reduction_parameters.number_of_pca_regressors
+    number_of_pca_regressors = runtime.number_of_pca_regressors if runtime is not None else reduction_parameters.number_of_pca_regressors
     pca_scaling = reduction_parameters.pca_scaling
     make_reconstructed_lightcurve = reduction_parameters.make_reconstructed_lightcurve
     compute_inverse_once = reduction_parameters.compute_inverse_once
@@ -1028,6 +1029,7 @@ def run_trap_with_model_spatial(
         reduction_parameters,
         planet_relative_yx_pos,
         reduction_mask,
+        runtime=None,
         yx_center=None,
         yx_center_injection=None,
         inverse_variance_reduction_area=None,
@@ -1116,9 +1118,10 @@ def run_trap_with_model_spatial(
     separation = np.sqrt(
         planet_relative_yx_pos[0]**2 + planet_relative_yx_pos[1]**2)
 
+    fwhm = runtime.fwhm if runtime is not None else reduction_parameters.fwhm
     _, time_masks = det_max_ncomp_specific(
         r_planet=separation,
-        fwhm=reduction_parameters.fwhm,
+        fwhm=fwhm,
         delta=reduction_parameters.protection_angle,
         pa=pa)
 
@@ -1382,7 +1385,7 @@ def run_trap_with_model_wavelength(
     """
 
     local_model = reduction_parameters.local_temporal_model
-    number_of_pca_regressors = reduction_parameters.number_of_pca_regressors
+    number_of_pca_regressors = runtime.number_of_pca_regressors if runtime is not None else reduction_parameters.number_of_pca_regressors
     pca_scaling = reduction_parameters.pca_scaling
     make_reconstructed_lightcurve = reduction_parameters.make_reconstructed_lightcurve
     compute_inverse_once = reduction_parameters.compute_inverse_once
@@ -1706,6 +1709,7 @@ def run_trap_with_model_wavelength(
 def run_trap_with_model_temporal_optimized(
         data, model, pa, reduction_parameters,
         reduction_mask,
+        runtime=None,
         inverse_variance_reduction_area=None,
         regressor_matrix=None,
         regressor_pool_mask=None):
@@ -1761,7 +1765,8 @@ def run_trap_with_model_temporal_optimized(
     B_full, _, _, _ = pca_regression.compute_SVD(
         training_matrix, n_components=None,
         scaling=reduction_parameters.pca_scaling)
-    B = B_full[:, :reduction_parameters.number_of_pca_regressors]
+    _n_pca = runtime.number_of_pca_regressors if runtime is not None else reduction_parameters.number_of_pca_regressors
+    B = B_full[:, :_n_pca]
     constant_offset = np.ones(ntime)
 
     for idx, _ in enumerate(reduction_pix_indeces):
@@ -1770,7 +1775,7 @@ def run_trap_with_model_temporal_optimized(
         # Lightcurve model fitting planet at pixel
         model_for_pixel = model[:, reduction_pix_indeces[idx, 0], reduction_pix_indeces[idx, 1]]
 
-        if reduction_parameters.number_of_pca_regressors != 0:
+        if _n_pca != 0:
             model_matrix = np.vstack((constant_offset, model_for_pixel))
             A = np.hstack((B, model_matrix.T))
         else:
@@ -1827,7 +1832,7 @@ def run_trap_with_model_temporal_optimized(
         reduced_result=reduced_result,
         reduction_mask=None,
         residuals=residuals,
-        number_of_pca_regressors=reduction_parameters.number_of_pca_regressors,
+        number_of_pca_regressors=_n_pca,
         true_contrast=None,
         yx_center=None,
         signal_weights=signal_weights,
@@ -1854,6 +1859,7 @@ def prepare_for_cross_validation(data, yx_position_relative, yx_center):
 def temporal_pca_cross_validation(
         data, model, pa, reduction_parameters,
         reduction_mask,
+        runtime=None,
         test_size=0.2,
         split_iterations=250,
         number_of_components_to_test=np.arange(1, 40),
