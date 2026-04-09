@@ -29,6 +29,7 @@ from trap.parameters import (
     Reduction_parameters,
     ReductionRuntimeState,
     TrapReductionConfig,
+    _to_reduction_config,
     build_runtime_state,
 )
 from trap.utils import (
@@ -44,35 +45,6 @@ from trap.utils import (
 
 logging.getLogger("ray").setLevel(logging.WARNING)
 
-
-def _to_reduction_config(reduction_parameters) -> TrapReductionConfig:
-    """Convert any accepted config type to TrapReductionConfig.
-
-    Accepts TrapConfig, TrapReductionConfig, or legacy Reduction_parameters.
-    """
-    if isinstance(reduction_parameters, TrapReductionConfig):
-        return reduction_parameters
-    if hasattr(reduction_parameters, 'get_reduction_parameters'):
-        # TrapConfig — extract TrapReductionConfig directly
-        return reduction_parameters.reduction
-    if isinstance(reduction_parameters, Reduction_parameters):
-        # Legacy Reduction_parameters — convert to TrapReductionConfig
-        import warnings
-        warnings.warn(
-            "Passing Reduction_parameters is deprecated. Use TrapReductionConfig instead.",
-            DeprecationWarning,
-            stacklevel=3,
-        )
-        fields = {f.name for f in TrapReductionConfig.__dataclass_fields__.values()}
-        kwargs = {}
-        for name in fields:
-            if hasattr(reduction_parameters, name):
-                kwargs[name] = getattr(reduction_parameters, name)
-        return TrapReductionConfig(**kwargs)
-    raise TypeError(
-        f"Expected TrapReductionConfig, TrapConfig, or Reduction_parameters, "
-        f"got {type(reduction_parameters).__name__}"
-    )
 
 
 # @ ray.remote
