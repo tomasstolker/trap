@@ -492,6 +492,14 @@ class Reduction_parameters(object):
             verbose=False,
             use_progress_bar=True,):
 
+        import warnings
+        warnings.warn(
+            "Reduction_parameters is deprecated and will be removed in a future release. "
+            "Use TrapReductionConfig instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
         self.search_region = search_region
         self.search_region_inner_bound = search_region_inner_bound
         self.search_region_outer_bound = search_region_outer_bound
@@ -784,7 +792,19 @@ class TrapReductionConfig:
         return replace(self, **kw)
 
     def to_reduction_parameters(self) -> "Reduction_parameters":
-        """Convert to TRAP Reduction_parameters instance."""
+        """Convert to TRAP Reduction_parameters instance.
+
+        .. deprecated::
+            Use ``TrapReductionConfig`` directly. This method will be removed
+            in a future release.
+        """
+        import warnings
+        warnings.warn(
+            "TrapReductionConfig.to_reduction_parameters() is deprecated and will be removed "
+            "in a future release. Use TrapReductionConfig directly.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         params_dict = asdict(self)
         
         # Filter out None values, but keep explicit None defaults where needed
@@ -1091,7 +1111,20 @@ class TrapConfig:
         self.reduction = self.resources.apply(self.reduction)
 
     def get_reduction_parameters(self) -> "Reduction_parameters":
-        """Get TRAP Reduction_parameters instance with current configuration."""
+        """Get TRAP Reduction_parameters instance with current configuration.
+
+        .. deprecated::
+            Access ``TrapConfig.reduction`` (a ``TrapReductionConfig``) directly
+            and pass it to ``run_complete_reduction``. This method will be removed
+            in a future release.
+        """
+        import warnings
+        warnings.warn(
+            "TrapConfig.get_reduction_parameters() is deprecated and will be removed "
+            "in a future release. Use TrapConfig.reduction (a TrapReductionConfig) directly.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return self.reduction.to_reduction_parameters()
 
     def get_stellar_parameters(self) -> Dict[str, float]:
