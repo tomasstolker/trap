@@ -329,7 +329,7 @@ class Reduction_parameters(object):
     contrast_curve : boolean
         Automatically generate contrast curve after reduction.
         Default is True.
-    constrast_curve_sigma : scalar
+    contrast_curve_sigma : scalar
         Defines the sigma of the contrast curve.
         Default is 5.
     normalization_width : integer

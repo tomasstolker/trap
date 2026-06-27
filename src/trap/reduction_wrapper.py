@@ -5,6 +5,7 @@ Routines used in TRAP
          MPIA Heidelberg
 """
 
+import dataclasses
 import datetime
 import logging
 import multiprocessing
@@ -130,9 +131,6 @@ def trap_one_position(
         ]
     else:
         true_contrast = reduction_parameters.true_contrast
-    # if reduction_parameters.true_position is not None:
-    #     true_rhophi = image_coordinates.relative_yx_to_rhophi(
-    #         reduction_parameters.true_position)
 
     planet_absolute_yx_pos = image_coordinates.relative_yx_to_absolute_yx(
         signal_position, yx_center
@@ -152,14 +150,6 @@ def trap_one_position(
         remove_interpolation_artifacts=True,
         copy=False,
     )
-    # injected_model_cube = makesource.addsource(
-    #     injected_model_cube, reduction_parameters.guess_position, pa,
-    #     flux_psf,
-    #     image_center=yx_center_injection,
-    #     norm=amplitude_modulation, jitter=0, poisson_noise=False,
-    #     yx_anamorphism=reduction_parameters.yx_anamorphism,
-    #     right_handed=reduction_parameters.right_handed,
-    #     verbose=False)
 
     signal_mask_local = injected_model_cube > 0.0
     signal_mask = np.any(signal_mask_local, axis=0)
@@ -167,7 +157,6 @@ def trap_one_position(
         runtime.reduction_mask_psf_size
         == runtime.signal_mask_psf_size
     ):
-        # reduction_mask_local = signal_mask_local
         reduction_mask = signal_mask
     else:
         reduction_mask = regressor_selection.make_mask_from_psf_track(
@@ -463,6 +452,100 @@ def trap_one_position(
     return results
 
 
+@dataclasses.dataclass
+class OutputPaths:
+    """File paths for all outputs associated with one reduction model key."""
+
+    detection_image: str
+    norm_detection_image: str
+    contrast_table: str
+    contrast_image: str
+    median_contrast_image: str
+    contrast_plot: str
+    correlation_matrix_binned: str = ""
+
+    @classmethod
+    def make(cls, result_folder, basename, key, sigma, corr=False):
+        infix = "_corr" if corr else ""
+        name = f"{basename}_{key}"
+        sigma_str = f"_sigma{sigma:.2f}"
+        return cls(
+            detection_image=os.path.join(
+                result_folder, f"detection{infix}_{name}.fits"
+            ),
+            norm_detection_image=os.path.join(
+                result_folder, f"norm_detection{infix}_{name}.fits"
+            ),
+            contrast_table=os.path.join(
+                result_folder, f"contrast_table{infix}_{name}.fits"
+            ),
+            contrast_image=os.path.join(
+                result_folder, f"contrast_image{infix}_{name}{sigma_str}.fits"
+            ),
+            median_contrast_image=os.path.join(
+                result_folder, f"median_contrast_image{infix}_{name}{sigma_str}.fits"
+            ),
+            contrast_plot=os.path.join(
+                result_folder, f"contrast_plot{infix}_{name}{sigma_str}.jpg"
+            ),
+            correlation_matrix_binned=os.path.join(
+                result_folder,
+                f"correlation_matrix_binned{infix}_{name}{sigma_str}.fits",
+            )
+            if corr
+            else "",
+        )
+
+
+def fill_detection_image(
+    detection_image,
+    detection_image_corr,
+    correlation_matrix_binned,
+    result,
+    yx,
+    inject_fake,
+    compute_residual_correlation,
+    use_residual_correlation,
+):
+    """Fill detection image arrays for a single position from a result dict."""
+    for key in detection_image:
+        if result[key] is not None:
+            detection_image[key][0][yx[0], yx[1]] = result[key].measured_contrast
+            detection_image[key][1][yx[0], yx[1]] = result[key].contrast_uncertainty
+            detection_image[key][2][yx[0], yx[1]] = result[key].snr
+            if inject_fake:
+                detection_image[key][3][yx[0], yx[1]] = result[key].true_contrast
+                detection_image[key][4][yx[0], yx[1]] = (
+                    result[key].measured_contrast - result[key].true_contrast
+                )
+                detection_image[key][5][yx[0], yx[1]] = (
+                    result[key].relative_deviation_from_true
+                )
+                detection_image[key][6][yx[0], yx[1]] = result[key].wrong_in_sigma
+            if compute_residual_correlation and use_residual_correlation:
+                detection_image_corr[key][0][yx[0], yx[1]] = (
+                    result[key].measured_contrast_with_corr
+                )
+                detection_image_corr[key][1][yx[0], yx[1]] = (
+                    result[key].contrast_uncertainty_with_corr
+                )
+                detection_image_corr[key][2][yx[0], yx[1]] = result[key].snr_with_corr
+                detection_image_corr[key][3][yx[0], yx[1]] = (
+                    result[key].correlation_info["corr_length_exponential"]
+                )
+                detection_image_corr[key][4][yx[0], yx[1]] = (
+                    result[key].correlation_info["corr_length_matern32"]
+                )
+                detection_image_corr[key][5][yx[0], yx[1]] = (
+                    result[key].correlation_info["corr_length_matern52"]
+                )
+                correlation_matrix_binned[key][:, yx[0], yx[1]] = (
+                    result[key]
+                    .correlation_info["summary_dataframe"]
+                    .empirical_correlation.values
+                )
+
+
 def run_trap_search(
     data,
     flux_psf,
@@ -695,65 +778,17 @@ def run_trap_search(
         results = [item for sublist in results for item in sublist]
 
         for idx, result in enumerate(results):
-            for key in detection_image:
-                if result[key] is not None:
-                    detection_image[key][0][
-                        search_coordinates[idx][0], search_coordinates[idx][1]
-                    ] = result[key].measured_contrast
-                    detection_image[key][1][
-                        search_coordinates[idx][0], search_coordinates[idx][1]
-                    ] = result[key].contrast_uncertainty
-                    detection_image[key][2][
-                        search_coordinates[idx][0], search_coordinates[idx][1]
-                    ] = result[key].snr
-                    if reduction_parameters.inject_fake:
-                        detection_image[key][3][
-                            search_coordinates[idx][0], search_coordinates[idx][1]
-                        ] = result[key].true_contrast
-                        detection_image[key][4][
-                            search_coordinates[idx][0], search_coordinates[idx][1]
-                        ] = (result[key].measured_contrast - result[key].true_contrast)
-                        detection_image[key][5][
-                            search_coordinates[idx][0], search_coordinates[idx][1]
-                        ] = result[key].relative_deviation_from_true
-                        detection_image[key][6][
-                            search_coordinates[idx][0], search_coordinates[idx][1]
-                        ] = result[key].wrong_in_sigma
+            fill_detection_image(
+                detection_image,
+                detection_image_corr,
+                correlation_matrix_binned,
+                result,
+                search_coordinates[idx],
+                reduction_parameters.inject_fake,
+                reduction_parameters.compute_residual_correlation,
+                reduction_parameters.use_residual_correlation,
+            )
 
-                    # NOTE: Should be include in results class or dictionary to avoid code duplication
-                    if (
-                        reduction_parameters.compute_residual_correlation
-                        and reduction_parameters.use_residual_correlation
-                    ):
-                        detection_image_corr[key][0][
-                            search_coordinates[idx][0], search_coordinates[idx][1]
-                        ] = result[key].measured_contrast_with_corr
-                        detection_image_corr[key][1][
-                            search_coordinates[idx][0], search_coordinates[idx][1]
-                        ] = result[key].contrast_uncertainty_with_corr
-                        detection_image_corr[key][2][
-                            search_coordinates[idx][0], search_coordinates[idx][1]
-                        ] = result[key].snr_with_corr
-                        detection_image_corr[key][3][
-                            search_coordinates[idx][0], search_coordinates[idx][1]
-                        ] = result[key].correlation_info["corr_length_exponential"]
-                        detection_image_corr[key][4][
-                            search_coordinates[idx][0], search_coordinates[idx][1]
-                        ] = result[key].correlation_info["corr_length_matern32"]
-                        detection_image_corr[key][5][
-                            search_coordinates[idx][0], search_coordinates[idx][1]
-                        ] = result[key].correlation_info["corr_length_matern52"]
-
-                        correlation_matrix_binned[key][
-                            :, search_coordinates[idx][0], search_coordinates[idx][1]
-                        ] = (
-                            result[key]
-                            .correlation_info["summary_dataframe"]
-                            .empirical_correlation.values
-                        )
-
-        #     del result
-        # del pool
         b = datetime.datetime.now()
     else:
         a = datetime.datetime.now()
@@ -781,61 +816,16 @@ def run_trap_search(
                 contrast_map=contrast_map,
                 readnoise=readnoise,
             )
-            for key in detection_image:
-                if result[key] is not None:
-                    detection_image[key][0][
-                        search_coordinates[idx][0], search_coordinates[idx][1]
-                    ] = result[key].measured_contrast
-                    detection_image[key][1][
-                        search_coordinates[idx][0], search_coordinates[idx][1]
-                    ] = result[key].contrast_uncertainty
-                    detection_image[key][2][
-                        search_coordinates[idx][0], search_coordinates[idx][1]
-                    ] = result[key].snr
-                    if reduction_parameters.inject_fake:
-                        detection_image[key][3][
-                            search_coordinates[idx][0], search_coordinates[idx][1]
-                        ] = result[key].true_contrast
-                        detection_image[key][4][
-                            search_coordinates[idx][0], search_coordinates[idx][1]
-                        ] = (result[key].measured_contrast - result[key].true_contrast)
-                        detection_image[key][5][
-                            search_coordinates[idx][0], search_coordinates[idx][1]
-                        ] = result[key].relative_deviation_from_true
-                        detection_image[key][6][
-                            search_coordinates[idx][0], search_coordinates[idx][1]
-                        ] = result[key].wrong_in_sigma
-                    # NOTE: Should be include in results class or dictionary to avoid code duplication
-                    if (
-                        reduction_parameters.compute_residual_correlation
-                        and reduction_parameters.use_residual_correlation
-                    ):
-                        detection_image_corr[key][0][
-                            search_coordinates[idx][0], search_coordinates[idx][1]
-                        ] = result[key].measured_contrast_with_corr
-                        detection_image_corr[key][1][
-                            search_coordinates[idx][0], search_coordinates[idx][1]
-                        ] = result[key].contrast_uncertainty_with_corr
-                        detection_image_corr[key][2][
-                            search_coordinates[idx][0], search_coordinates[idx][1]
-                        ] = result[key].snr_with_corr
-                        detection_image_corr[key][3][
-                            search_coordinates[idx][0], search_coordinates[idx][1]
-                        ] = result[key].correlation_info["corr_length_exponential"]
-                        detection_image_corr[key][4][
-                            search_coordinates[idx][0], search_coordinates[idx][1]
-                        ] = result[key].correlation_info["corr_length_matern32"]
-                        detection_image_corr[key][5][
-                            search_coordinates[idx][0], search_coordinates[idx][1]
-                        ] = result[key].correlation_info["corr_length_matern52"]
-                        correlation_matrix_binned[key][
-                            :, search_coordinates[idx][0], search_coordinates[idx][1]
-                        ] = (
-                            result[key]
-                            .correlation_info["summary_dataframe"]
-                            .empirical_correlation.values
-                        )
-
+            fill_detection_image(
+                detection_image,
+                detection_image_corr,
+                correlation_matrix_binned,
+                result,
+                search_coordinates[idx],
+                reduction_parameters.inject_fake,
+                reduction_parameters.compute_residual_correlation,
+                reduction_parameters.use_residual_correlation,
+            )
             del result
         b = datetime.datetime.now()
     c = b - a
@@ -928,37 +918,12 @@ def multi_position_cross_validation(
     if inverse_variance is not None:
         inverse_variance = inverse_variance.astype("float64")
 
-    # oversampling = reduction_parameters.oversampling
     yx_dim = (data.shape[-2], data.shape[-1])
-    # yx_center_output = (yx_dim[0] // 2, yx_dim[1] // 2)
     if yx_center is None:
         yx_center = (yx_dim[0] // 2, yx_dim[1] // 2)
 
     if amplitude_modulation is None:
         amplitude_modulation = np.ones(data.shape[0])
-
-    # detection_image = {}
-    # if reduction_parameters.temporal_model:
-    #     detection_image['temporal'] = np.zeros(
-    #         (detection_image_dim, int(yx_dim[0] * oversampling), int(yx_dim[1] * oversampling)))
-
-    # search_region = reduction_parameters.search_region
-    # search_coordinates = np.argwhere(search_region) * oversampling
-    # # relative coordinates to output image center (i.e. position of star)
-    # relative_coords = np.array(list(map(
-    #     lambda x: image_coordinates.absolute_yx_to_relative_yx(x, yx_center_output),
-    #     search_coordinates.tolist())))
-
-    # search_coordinates = np.array(
-    #     list(
-    #         map(
-    #             lambda x: image_coordinates.relative_yx_to_absolute_yx(
-    #                 x, yx_center_output
-    #             ),
-    #             relative_coords.tolist(),
-    #         )
-    #     )
-    # )
 
     print("Number of positions: {}".format(len(relative_coords)))
     if reduction_parameters.use_multiprocess:
@@ -1515,136 +1480,30 @@ def run_complete_reduction(
                 )
             print(basename["temporal"])
 
-            detection_image_path = {}
-            norm_detection_image_path = {}
-            contrast_table_path = {}
-            contrast_image_path = {}
-            median_contrast_image_path = {}
-            contrast_plot_path = {}
-
-            # NOTE: Temporarily added for correlation, complex outputs should be implemented as in separate class
-            # or dictionary to reduce code duplication
-            if (
-                reduction_parameters.compute_residual_correlation
-                and reduction_parameters.use_residual_correlation
-            ):
-                detection_image_corr_path = {}
-                norm_detection_image_corr_path = {}
-                contrast_table_corr_path = {}
-                contrast_image_corr_path = {}
-                median_contrast_image_corr_path = {}
-                contrast_plot_corr_path = {}
-                correlation_matrix_binned_path = {}
-
             # Having all the different reductions in the output makes it easier to compare but also more complex to refactor
             # Since individual outputs cannot be checked for existence
+            sigma = reduction_parameters.contrast_curve_sigma
+            use_corr = (
+                reduction_parameters.compute_residual_correlation
+                and reduction_parameters.use_residual_correlation
+            )
+            output_paths = {}
+            output_paths_corr = {}
             for key in ["temporal", "temporal_plus_spatial", "spatial"]:
-                detection_image_path[key] = os.path.join(
-                    result_folder, "detection_" + basename[key] + "_" + key + ".fits"
+                output_paths[key] = OutputPaths.make(
+                    result_folder, basename[key], key, sigma
                 )
+                if use_corr:
+                    output_paths_corr[key] = OutputPaths.make(
+                        result_folder, basename[key], key, sigma, corr=True
+                    )
                 # If output file with basename already exists, skip reduction
                 if not overwrite and not reduction_parameters.reduce_single_position:
-                    if os.path.exists(detection_image_path[key]):
-                        print(f"Reduction already exists for {detection_image_path[key]} - skipping.")
-                        return None   
-                    
-                norm_detection_image_path[key] = os.path.join(
-                    result_folder,
-                    "norm_detection_" + basename[key] + "_" + key + ".fits",
-                )
-                contrast_table_path[key] = os.path.join(
-                    result_folder,
-                    "contrast_table_" + basename[key] + "_" + key + ".fits",
-                )
-                contrast_image_path[key] = os.path.join(
-                    result_folder,
-                    "contrast_image_"
-                    + basename[key]
-                    + "_"
-                    + key
-                    + "_sigma{:.2f}.fits".format(
-                        reduction_parameters.contrast_curve_sigma
-                    ),
-                )
-                median_contrast_image_path[key] = os.path.join(
-                    result_folder,
-                    "median_contrast_image_"
-                    + basename[key]
-                    + "_"
-                    + key
-                    + "_sigma{:.2f}.fits".format(
-                        reduction_parameters.contrast_curve_sigma
-                    ),
-                )
-                contrast_plot_path[key] = os.path.join(
-                    result_folder,
-                    "contrast_plot_"
-                    + basename[key]
-                    + "_"
-                    + key
-                    + "_sigma{:.2f}.jpg".format(
-                        reduction_parameters.contrast_curve_sigma
-                    ),
-                )
-
-                # NOTE: Temporarily added for correlation, complex outputs should be implemented as in separate class
-                # or dictionary to reduce code duplication
-                if (
-                    reduction_parameters.compute_residual_correlation
-                    and reduction_parameters.use_residual_correlation
-                ):
-                    detection_image_corr_path[key] = os.path.join(
-                        result_folder,
-                        "detection_corr_" + basename[key] + "_" + key + ".fits",
-                    )
-                    norm_detection_image_corr_path[key] = os.path.join(
-                        result_folder,
-                        "norm_detection_corr_" + basename[key] + "_" + key + ".fits",
-                    )
-                    contrast_table_corr_path[key] = os.path.join(
-                        result_folder,
-                        "contrast_table_corr_" + basename[key] + "_" + key + ".fits",
-                    )
-                    contrast_image_corr_path[key] = os.path.join(
-                        result_folder,
-                        "contrast_image_corr_"
-                        + basename[key]
-                        + "_"
-                        + key
-                        + "_sigma{:.2f}.fits".format(
-                            reduction_parameters.contrast_curve_sigma
-                        ),
-                    )
-                    median_contrast_image_corr_path[key] = os.path.join(
-                        result_folder,
-                        "median_contrast_image_corr_"
-                        + basename[key]
-                        + "_"
-                        + key
-                        + "_sigma{:.2f}.fits".format(
-                            reduction_parameters.contrast_curve_sigma
-                        ),
-                    )
-                    contrast_plot_corr_path[key] = os.path.join(
-                        result_folder,
-                        "contrast_plot_corr_"
-                        + basename[key]
-                        + "_"
-                        + key
-                        + "_sigma{:.2f}.jpg".format(
-                            reduction_parameters.contrast_curve_sigma
-                        ),
-                    )
-                    correlation_matrix_binned_path[key] = os.path.join(
-                        result_folder,
-                        "correlation_matrix_binned_"
-                        + basename[key]
-                        + "_"
-                        + key
-                        + "_sigma{:.2f}.fits".format(
-                            reduction_parameters.contrast_curve_sigma
-                        ),
-                    )
+                    if os.path.exists(output_paths[key].detection_image):
+                        print(
+                            f"Reduction already exists for {output_paths[key].detection_image} - skipping."
+                        )
+                        return None
 
             # if reduction_parameters.temporal_plus_spatial_model:
             #     contrast_plot_comparison_path = os.path.join(
@@ -1793,7 +1652,7 @@ def run_complete_reduction(
                 reduction_parameters.inject_fake
                 and reduction_parameters.read_injection_files
             ):
-                input_contrast_image_path = contrast_image_path["temporal"].replace(
+                input_contrast_image_path = output_paths["temporal"].contrast_image.replace(
                     "injectedsigma{:.2f}_".format(reduction_parameters.injection_sigma),
                     "",
                 )
@@ -1965,26 +1824,20 @@ def run_complete_reduction(
                     use_progress_bar=use_progress_bar,
                 )
 
-                # NOTE: Moved out from run_trap_search
                 for key in detection_image:
                     fits.writeto(
-                        detection_image_path[key],
+                        output_paths[key].detection_image,
                         detection_image[key],
-                        overwrite=True
+                        overwrite=True,
                     )
-                    # NOTE: Temporarily added for correlation, complex outputs should be implemented as in separate class
-                    # or dictionary to reduce code duplication
-                    if (
-                        reduction_parameters.compute_residual_correlation
-                        and reduction_parameters.use_residual_correlation
-                    ):
+                    if use_corr:
                         fits.writeto(
-                            detection_image_corr_path[key],
+                            output_paths_corr[key].detection_image,
                             detection_image_corr[key],
                             overwrite=True,
                         )
                         fits.writeto(
-                            correlation_matrix_binned_path[key],
+                            output_paths_corr[key].correlation_matrix_binned,
                             correlation_matrix_binned[key],
                             overwrite=True,
                         )

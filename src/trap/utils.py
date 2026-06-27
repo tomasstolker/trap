@@ -213,61 +213,35 @@ def resize_arr(arr, newdim):
                 dx1 - dx2:dx1 + dx2 + 1]
 
 
-def crop_box_from_4D_cube(flux_arr, boxsize, center_yx=None):
-    """Extract cropped area centered on given coordinates"""
-
+def _crop_box(flux_arr, boxsize, center_yx):
+    """Core crop logic operating on the last two axes."""
     if center_yx is None:
         dx1 = flux_arr.shape[-1] // 2
         dy1 = flux_arr.shape[-2] // 2
     else:
         dx1 = center_yx[1]
         dy1 = center_yx[0]
-
     dx2 = dy2 = boxsize // 2
-
     if boxsize % 2 == 0:
-        return flux_arr[:, :, int(dy1 - dy2):int(dy1 + dy2),
-                        int(dx1 - dx2):int(dx1 + dx2)]   
-    return flux_arr[:, :, int(dy1 - dy2):int(dy1 + dy2 + 1),
+        return flux_arr[..., int(dy1 - dy2):int(dy1 + dy2),
+                        int(dx1 - dx2):int(dx1 + dx2)]
+    return flux_arr[..., int(dy1 - dy2):int(dy1 + dy2 + 1),
                     int(dx1 - dx2):int(dx1 + dx2 + 1)]
+
+
+def crop_box_from_4D_cube(flux_arr, boxsize, center_yx=None):
+    """Extract cropped area centered on given coordinates"""
+    return _crop_box(flux_arr, boxsize, center_yx)
 
 
 def crop_box_from_3D_cube(flux_arr, boxsize, center_yx=None):
     """Extract cropped area centered on given coordinates"""
-
-    if center_yx is None:
-        dx1 = flux_arr.shape[-1] // 2
-        dy1 = flux_arr.shape[-2] // 2
-    else:
-        dx1 = center_yx[1]
-        dy1 = center_yx[0]
-
-    dx2 = dy2 = boxsize // 2
-
-    if boxsize % 2 == 0:
-        return flux_arr[:, int(dy1 - dy2):int(dy1 + dy2),
-                        int(dx1 - dx2):int(dx1 + dx2)]
-    return flux_arr[:, int(dy1 - dy2):int(dy1 + dy2 + 1),
-                    int(dx1 - dx2):int(dx1 + dx2 + 1)]
+    return _crop_box(flux_arr, boxsize, center_yx)
 
 
 def crop_box_from_image(flux_arr, boxsize, center_yx=None):
     """Extract cropped area centered on given coordinates"""
-
-    if center_yx is None:
-        dx1 = flux_arr.shape[-1] // 2
-        dy1 = flux_arr.shape[-2] // 2
-    else:
-        dx1 = center_yx[1]
-        dy1 = center_yx[0]
-
-    dx2 = dy2 = boxsize // 2
-
-    if boxsize % 2 == 0:
-        return flux_arr[int(dy1 - dy2):int(dy1 + dy2),
-                        int(dx1 - dx2):int(dx1 + dx2)]
-    return flux_arr[int(dy1 - dy2):int(dy1 + dy2 + 1),
-                    int(dx1 - dx2):int(dx1 + dx2 + 1)]
+    return _crop_box(flux_arr, boxsize, center_yx)
 
 
 def resize_image_cube(arr, new_dim):

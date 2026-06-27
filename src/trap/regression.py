@@ -448,7 +448,7 @@ class Result(object):
         for i in range(self.n_reduction_pix):
             g_init = models.Gaussian1D(amplitude=1., mean=0, stddev=1.)
             fit_g = fitting.LevMarLSQFitter()
-            hist = np.histogram(self.residuals[i, :], normed=True)
+            hist = np.histogram(self.residuals[i, :], density=True)
             centers = np.diff(hist[1]) / 2 + hist[1][:-1]
             g = fit_g(g_init, x=centers, y=hist[0])
             plt.plot(x, g(x))
@@ -944,9 +944,6 @@ def run_trap_with_model_temporal(
                     handles, labels = ax.get_legend_handles_labels()
                     ax.legend(handles[::-1], labels[::-1], loc='upper right')
                     plt.title('Principal component lightcurves')
-                    # plt.ylim(-1, 5)
-                    # plt.xlim(0, 300)
-                    # plt.show()
                     plt.savefig(os.path.join(diagnostic_image_folder,
                                 'principal_component_lightcurves_normalized_to_overall_variance.png'), dpi=300)
 
@@ -964,9 +961,6 @@ def run_trap_with_model_temporal(
                     handles, labels = ax.get_legend_handles_labels()
                     ax.legend(handles[::-1], labels[::-1], loc='upper right')
                     plt.title('Principal component lightcurves')
-                    # plt.ylim(-1, 5)
-                    # plt.xlim(0, 300)
-                    # plt.show()
                     plt.savefig(os.path.join(diagnostic_image_folder,
                                 'principal_component_lightcurves.png'), dpi=300)
 
@@ -2003,39 +1997,3 @@ def temporal_pca_cross_validation(
     # np.argmin(np.abs(np.mean(wrong_in_sigma, axis=1)))
 
     return ncomp_pca_residuals, last_regressor_coefficient
-    # ipsh()
-    # best_number_of_components = number_of_components_to_test[np.argmin(score_robust, axis=0)]
-
-    # plt.plot(number_of_components_to_test, score)
-    # plt.show()
-    # except np.linalg.LinAlgError:
-    #     P = np.empty(A.shape[1])
-    #     P[:] = np.nan
-    #     P_sigma_squared = np.empty(A.shape[1])
-    #     P_sigma_squared[:] = np.nan
-
-    # if P[0] is not np.nan:
-    # else:
-    #     reconstructed_lightcurve = np.empty(ntime)
-    #     reconstructed_lightcurve[:] = np.nan
-
-    # fitted_model[idx] = reconstructed_lightcurve
-    # reduced_result[idx] = (P[-1], P_sigma_squared[-1])
-
-    # residuals = (data[:, reduction_mask].T - fitted_model)
-
-    # result = Result(
-    #     data=None,
-    #     model_cube=None,
-    #     noise_model_cube=None,
-    #     diagnostic_image=None,
-    #     reduced_result=reduced_result,
-    #     reduction_mask=None,
-    #     residuals=residuals,
-    #     number_of_pca_regressors=reduction_parameters.number_of_pca_regressors,
-    #     true_contrast=None,
-    #     yx_center=None,
-    #     compute_residual_correlation=reduction_parameters.compute_residual_correlation,
-    #     use_residual_correlation=reduction_parameters.use_residual_correlation)
-
-    # return result

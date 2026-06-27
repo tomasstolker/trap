@@ -64,21 +64,10 @@ def compute_SVD(training_matrix, n_components, scaling='temp-median', compute_ro
     if scaling is not None:
         training_matrix = matrix_scaling(training_matrix, scaling=scaling)  # 'temp-standard
     U, S, V = np.linalg.svd(training_matrix, full_matrices=False)
-    # Uf, Sf, Vf = np.linalg.svd(training_matrix, full_matrices=True)
-    # Ut, St, Vt = np.linalg.svd(training_matrix.T, full_matrices=True)
+    # If matrix is (time, pixels), then U zero dimension is also time dimension, 1st is eigenvector
     # bad_frames = detect_bad_frames(
     #     eigenvector_matrix=U, bad_frame_mad_cutoff=6, plot_bad_frames=True,
     #     number_of_components_to_consider=50)
-    # If matrix is (time, pixels), then U zero dimension is also time dimension, 1st is eigenvector
-    # np.save('eigenvalues_quart_ann9.npy', S)
-    # from scipy.linalg import eigh
-    # cov = np.dot(training_matrix, training_matrix.T)
-    # w, v2 = linalg.eigh(cov, lower=True, eigvals_only=False, overwrite_a=False,
-    #                     overwrite_b=False, turbo=True, eigvals=None, type=1, check_finite=True)
-    # w = w[::-1]
-    # v2 = v2[:,::-1] #shape (n_ref, ncomp)
-
-    # S**2 == w
 
     if n_components is not None:
         U = U[:, :n_components]
@@ -190,55 +179,6 @@ def multi_dot_three(A, B, C, out):  # , out):  # , out=None):
         return np.dot(np.dot(A, B), C, out=out)
     else:
         return np.dot(A, np.dot(B, C), out=out)
-
-
-# np.random.seed(0)
-# A = np.random.random((10000, 100))
-# B = np.random.random((1000, 1000))
-# Bsp = sparse.diags(np.diag(B), offsets=0)
-# C = np.random.random((1000, 1))
-# a0, a1b0 = A.shape
-# b1c0, c1 = C.shape
-# cost1 = a0 * b1c0 * (a1b0 + c1)
-# # cost2 = cost(A(BC)) = a1b0*b1c0*c1 + a0*a1b0*c1
-# cost2 = a1b0 * c1 * (a0 + b1c0)
-# # print(cost1)
-# # print(cost2)
-# out = np.ones((A.shape[0], C.shape[-1]), dtype='float64')
-# %timeit multi_dot_three(A, B, C])#, out)
-#
-#
-# b = multi_dot_three(A, B, C, out)
-# # 1.42 ms ± 16.2 µs per loop (mean ± std. dev. of 7 runs, 1000 loops each)
-# a = multi_dot_three(A, B, C, out)
-# d = multi_dot_three(A, B, C, out)
-# %timeit np.dot(np.dot(A, B), C)
-# %timeit np.dot(A, np.dot(B, C))
-# %timeit np.dot(A, Bsp.dot(C))
-#
-# %timeit np.dot(np.dot(A, B), A.T)
-# %timeit np.dot(A, np.dot(B, A.T))
-# %timeit np.dot(A, Bsp.dot(A.T))
-
-# %timeit np.dot(A.dot(Bsp), C)
-# %timeit np.dot(np.dot(A, B), C)
-# ## -- End pasted text --
-# 292 µs ± 6.27 µs per loop (mean ± std. dev. of 7 runs, 1000 loops each)
-
-# In [53]: paste
-# %timeit np.dot(A, np.dot(B, C))
-# ## -- End pasted text --
-# 18.1 µs ± 220 ns per loop (mean ± std. dev. of 7 runs, 100000 loops each)
-
-# In [54]: paste
-# %timeit np.dot(A, Bsp.dot(C))
-# ## -- End pasted text --
-# 11.7 µs ± 88.3 ns per loop (mean ± std. dev. of 7 runs, 100000 loops each)
-
-# In [55]: paste
-# %timeit np.dot(A.dot(Bsp), C)
-# ## -- End pasted text --
-# 6.17 s ± 55.7 ms per loop (mean ± std. dev. of 7 runs, 1 loop each)
 
 
 @jit(nopython=True)
@@ -358,7 +298,7 @@ def ols(design_matrix, data, covariance=None):
 
     .. math:: A x = y
 
-    by finding optimal solution :math:'\hat{x}' by minimizing
+    by finding optimal solution :math:`\hat{x}` by minimizing
 
     .. math::
 
