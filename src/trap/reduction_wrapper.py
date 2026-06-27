@@ -1570,8 +1570,6 @@ def run_complete_reduction(
             else:
                 known_companion_mask = None
 
-            known_companion_mask = None
-
             if reduction_parameters.inject_fake:
                 # Return copy of data when injecting fake to not contaminate data
                 if data_crop_size is not None:

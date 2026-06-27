@@ -5,6 +5,21 @@ This project adheres to [Keep a Changelog](https://keepachangelog.com/) and [Sem
 
 ## [Unreleased]
 
+### Changed
+- **Internal cleanup** – Deduplicated detection-image population (`fill_detection_image`) and output-path construction (`OutputPaths`) in the reduction wrapper, and consolidated the `crop_box_*` helpers. No change to reduction results.
+- **Correlation output naming** – The `correlation_matrix_binned` output now carries a `_corr` infix, consistent with the other residual-correlation outputs (affects only runs with residual correlation enabled).
+
+### Fixed
+- **Known-companion regressor exclusion** – Removed a stray assignment that discarded the computed known-companion mask, so `yx_known_companion_position` again excludes known companions from the regressor pool.
+- **Cross-validation robustness** – `temporal_pca_cross_validation` now fills failed solver fits with NaN instead of dropping into a debug shell.
+- **Latent `NameError`** – `run_trap_with_model_wavelength` now accepts the `runtime` argument it referenced.
+- **NumPy 2.0 compatibility** – Replaced the removed `np.histogram(normed=...)` argument with `density=...`.
+- **Docstring typo** – Corrected `constrast_curve_sigma` to `contrast_curve_sigma`.
+
+### Removed
+- **Dead code** – Removed concluded experiments and unreachable/commented-out blocks (eigendecomposition and timing benchmarks in `pca_regression`, a post-`return` block and hardcoded plot limits in `regression`).
+- **Unreleased Gaia coupling** – Removed the never-released `use_gaia_stellar_parameters` field from `DetectionParameters`; the stellar-parameter handover now lives entirely in the `spherical` wrapper.
+
 ## [1.2.1] - 2025-08-10
 
 ### Added
