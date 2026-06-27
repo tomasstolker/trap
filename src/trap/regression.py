@@ -20,7 +20,6 @@ from sklearn.model_selection import train_test_split
 from tqdm import tqdm
 
 from trap import image_coordinates, pca_regression, plotting_tools, regressor_selection
-from trap.embed_shell import ipsh
 from trap.utils import (
     compute_empirical_correlation_matrix,
     det_max_ncomp_specific,
@@ -1307,7 +1306,8 @@ def run_trap_with_model_wavelength(
         true_contrast=None,
         return_input_data=False,
         plot_all_diagnostics=False,
-        verbose=False):
+        verbose=False,
+        runtime=None):
     """Core function of the TRAP analysis. Builds the temporal regression
     model and perform model fitting for all time series vectors in the
     `reduction_mask` as described in Samland et al. 2020.
@@ -1972,8 +1972,9 @@ def temporal_pca_cross_validation(
                         design_matrix=A_train.T,
                         data=y_train,
                         inverse_covariance=inverse_covariance)
-                except:
-                    ipsh()
+                except np.linalg.LinAlgError:
+                    P = np.full(A.shape[1], np.nan)
+                    P_sigma_squared = np.full(A.shape[1], np.nan)
 
                 reconstructed_lightcurve = np.dot(A, P)
                 residuals.append(y_test - reconstructed_lightcurve[idx_test])
