@@ -11,13 +11,11 @@ import logging
 import multiprocessing
 import os
 from collections import OrderedDict
-from copy import copy
 
 import numpy as np
 import ray
 from astropy.io import fits
 from astropy.stats import mad_std
-
 from tqdm.auto import tqdm
 
 from trap import (
@@ -27,9 +25,6 @@ from trap import (
     regressor_selection,
 )
 from trap.parameters import (
-    Reduction_parameters,
-    ReductionRuntimeState,
-    TrapReductionConfig,
     _to_reduction_config,
     build_runtime_state,
 )
@@ -39,7 +34,6 @@ from trap.utils import (
     crop_box_from_image,
     determine_psf_stampsizes,
     prepare_psf,
-    round_up_to_odd,
     save_object,
     shuffle_and_equalize_relative_positions,
 )

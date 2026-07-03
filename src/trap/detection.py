@@ -29,12 +29,11 @@ from scipy import linalg, stats
 from species import SpeciesInit
 from species.data.database import Database
 from species.read.read_model import ReadModel
-
 from tqdm.auto import tqdm
 
 from trap import image_coordinates, pca_regression, regressor_selection
 from trap.image_coordinates import absolute_yx_to_relative_yx, relative_yx_to_rhophi
-from trap.parameters import TrapReductionConfig, _to_reduction_config
+from trap.parameters import _to_reduction_config
 from trap.reduction_wrapper import run_complete_reduction
 from trap.template import SpectralTemplate
 from trap.utils import (
