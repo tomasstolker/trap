@@ -29,11 +29,11 @@ from scipy import linalg, stats
 from species import SpeciesInit
 from species.data.database import Database
 from species.read.read_model import ReadModel
-
 from tqdm.auto import tqdm
 
 from trap import image_coordinates, pca_regression, regressor_selection
 from trap.image_coordinates import absolute_yx_to_relative_yx, relative_yx_to_rhophi
+from trap.parameters import _to_reduction_config
 from trap.reduction_wrapper import run_complete_reduction
 from trap.template import SpectralTemplate
 from trap.utils import (
@@ -1330,16 +1330,8 @@ class DetectionAnalysis(object):
         self.wavelength_indices = wavelength_indices
         self.instrument = instrument
         
-        # Handle both legacy Reduction_parameters and modern TrapConfig
-        # Convert TrapConfig to legacy format for compatibility
         if reduction_parameters is not None:
-            if hasattr(reduction_parameters, 'get_reduction_parameters'):
-                # This is a TrapConfig object, convert to legacy format
-                self.reduction_parameters = reduction_parameters.get_reduction_parameters()
-                print("Using TrapConfig, converted to legacy Reduction_parameters format.")
-            else:
-                # This is already a Reduction_parameters object, use it as-is
-                self.reduction_parameters = reduction_parameters
+            self.reduction_parameters = _to_reduction_config(reduction_parameters)
         else:
             self.reduction_parameters = None
             
@@ -1395,17 +1387,15 @@ class DetectionAnalysis(object):
             self.instrument = load_object(os.path.join(result_folder, "instrument.obj"))
 
         if read_parameters:
-            self.reduction_parameters = load_object(os.path.join(result_folder, "reduction_parameters.obj"))
+            config_path = os.path.join(result_folder, "reduction_config.obj")
+            legacy_path = os.path.join(result_folder, "reduction_parameters.obj")
+            if os.path.exists(config_path):
+                self.reduction_parameters = load_object(config_path)
+            else:
+                self.reduction_parameters = _to_reduction_config(load_object(legacy_path))
         else:
             if reduction_parameters is not None and instrument is not None:
-                # Handle both legacy Reduction_parameters and modern TrapConfig
-                # Convert TrapConfig to legacy format for compatibility
-                if hasattr(reduction_parameters, 'get_reduction_parameters'):
-                    # This is a TrapConfig object, convert to legacy format
-                    self.reduction_parameters = reduction_parameters.get_reduction_parameters()
-                else:
-                    # This is already a Reduction_parameters object, use it as-is
-                    self.reduction_parameters = reduction_parameters
+                self.reduction_parameters = _to_reduction_config(reduction_parameters)
                 self.instrument = instrument
         self.instrument.compute_fwhm()
 
@@ -1937,27 +1927,19 @@ class DetectionAnalysis(object):
                 candidate_idx
             ]
 
-            if self.reduction_parameters.yx_known_companion_position is not None:
-                self.reduction_parameters.yx_known_companion_position = np.vstack(
-                    [
-                        self.reduction_parameters.yx_known_companion_position,
-                        yx_position_relative,
-                    ]
-                )
+            base_positions = self.reduction_parameters.yx_known_companion_position
+            if base_positions is not None:
+                combined_positions = np.vstack([base_positions, yx_position_relative])
             else:
-                self.reduction_parameters.yx_known_companion_position = np.expand_dims(
-                    yx_position_relative, axis=0
-                )
+                combined_positions = np.expand_dims(yx_position_relative, axis=0)
 
             detection_products = self.contrast_table_and_normalization(
                 detection_cube=detection_cube,
                 cube_indices=[detection_product_index],
+                yx_known_companion_position=combined_positions,
                 mask_above_sigma=5.0,
                 save=False,
                 inplace=False,
-            )
-            self.reduction_parameters.yx_known_companion_position = np.delete(
-                self.reduction_parameters.yx_known_companion_position, -1, axis=0
             )
 
             (
@@ -2490,17 +2472,15 @@ class DetectionAnalysis(object):
         if wavelength_indices is None:
             wavelength_indices = self.wavelength_indices
 
-        re_reduction_parameters = copy.deepcopy(self.reduction_parameters)
+        re_reduction_parameters = self.reduction_parameters.merge(
+            guess_position=yx_candidate_position,
+            use_multiprocess=False,
+            reduce_single_position=True,
+            data_auto_crop=True,
+            yx_known_companion_position=None,
+            remove_known_companions=False,
+        )
         detection_products_orig = copy.deepcopy(self.detection_products)
-
-        re_reduction_parameters.guess_position = yx_candidate_position
-        re_reduction_parameters.use_multiprocess = False
-        re_reduction_parameters.reduce_single_position = True
-        re_reduction_parameters.data_auto_crop = True
-        re_reduction_parameters.yx_known_companion_position = None
-        # To avoid manipulating data in place (multiple injections)
-        # Set remove_known_companions to False
-        re_reduction_parameters.remove_known_companions = False
         all_results = run_complete_reduction(
             data_full=data_full.copy(),
             flux_psf_full=flux_psf_full.copy(),
@@ -2546,18 +2526,19 @@ class DetectionAnalysis(object):
 
         # REDO NORMALIZATION WITHOUT CANDIDATES
         if hasattr(self, 'candidates'):
-            self.reduction_parameters.yx_known_companion_position = np.vstack(
-                [
-                    self.reduction_parameters.yx_known_companion_position,
+            base_positions = self.reduction_parameters.yx_known_companion_position
+            if base_positions is not None:
+                combined_positions = np.vstack([
+                    base_positions,
                     self.candidates[["y_relative", "x_relative"]].values,
-                ]
+                ])
+            else:
+                combined_positions = self.candidates[["y_relative", "x_relative"]].values
+            self.contrast_table_and_normalization(
+                save=False, inplace=True, yx_known_companion_position=combined_positions
             )
-
-        self.contrast_table_and_normalization(save=False, inplace=True)
-        if hasattr(self, 'candidates'):
-            self.reduction_parameters.yx_known_companion_position = np.delete(
-                self.reduction_parameters.yx_known_companion_position, -1, axis=0
-            )
+        else:
+            self.contrast_table_and_normalization(save=False, inplace=True)
 
         normalization_factors = []
         for contrast_table_index in range(len(wavelength_indices)):
@@ -3386,10 +3367,10 @@ class DetectionAnalysis(object):
                 )
 
             if template.number_of_pca_regressors > 0:
-                self.reduction_parameters.target_pix_mask_radius = 11
+                local_config = self.reduction_parameters.merge(target_pix_mask_radius=11)
                 regressor_pool_mask_global = (
                     regressor_selection.make_regressor_pool_for_pixel(
-                        reduction_parameters=self.reduction_parameters,
+                        reduction_parameters=local_config,
                         yx_pixel=yx_pixel,
                         yx_dim=yx_dim,
                         yx_center=yx_center_output,
@@ -3465,7 +3446,6 @@ class DetectionAnalysis(object):
                 output_dir_matching, f"contrast_plot_{template_name}"
             )
 
-        self.reduction_parameters.yx_known_companion_position = None
         detection_products_matched = self.contrast_table_and_normalization(
             detection_cube=[template_matched_image],
             cube_indices=[0],
@@ -3766,8 +3746,8 @@ class DetectionAnalysis(object):
             # yx_known_companion_position = np.unique(
             #     validated_companion_table[['y_relative', 'x_relative']].values, axis=0)
 
-            self.reduction_parameters.yx_known_companion_position = (
-                yx_known_companion_position
+            self.reduction_parameters = self.reduction_parameters.merge(
+                yx_known_companion_position=yx_known_companion_position
             )
 
             companion_table.to_csv(
@@ -4202,8 +4182,8 @@ class DetectionAnalysis(object):
                 validated_companion_table[["y_relative", "x_relative"]].values, axis=0
             )
 
-            self.reduction_parameters.yx_known_companion_position = (
-                yx_known_companion_position
+            self.reduction_parameters = self.reduction_parameters.merge(
+                yx_known_companion_position=yx_known_companion_position
             )
 
             companion_table.to_csv(
@@ -4303,9 +4283,11 @@ class DetectionAnalysis(object):
         save_initial_detection_products=True):
 
         if reduction_parameters is not None and instrument is not None:
-            self.reduction_parameters = reduction_parameters
+            self.reduction_parameters = _to_reduction_config(reduction_parameters)
 
-        self.reduction_parameters.yx_known_companion_position = None
+        self.reduction_parameters = self.reduction_parameters.merge(
+            yx_known_companion_position=None
+        )
 
         self.detection_cube[self.detection_cube == 0.] = np.nan
 

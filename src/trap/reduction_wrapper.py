@@ -5,18 +5,17 @@ Routines used in TRAP
          MPIA Heidelberg
 """
 
+import dataclasses
 import datetime
 import logging
 import multiprocessing
 import os
 from collections import OrderedDict
-from copy import copy
 
 import numpy as np
 import ray
 from astropy.io import fits
 from astropy.stats import mad_std
-
 from tqdm.auto import tqdm
 
 from trap import (
@@ -25,18 +24,23 @@ from trap import (
     regression,
     regressor_selection,
 )
+from trap.parameters import (
+    _to_reduction_config,
+    build_runtime_state,
+)
 from trap.utils import (
     ProgressBar,
     crop_box_from_3D_cube,
     crop_box_from_image,
     determine_psf_stampsizes,
     prepare_psf,
-    round_up_to_odd,
     save_object,
     shuffle_and_equalize_relative_positions,
 )
 
 logging.getLogger("ray").setLevel(logging.WARNING)
+
+
 
 # @ ray.remote
 def trap_one_position(
@@ -46,6 +50,7 @@ def trap_one_position(
     pa,
     reduction_parameters,
     known_companion_mask,
+    runtime=None,
     inverse_variance=None,
     bad_pixel_mask=None,
     yx_center=None,
@@ -109,20 +114,17 @@ def trap_one_position(
         amplitude_modulation = np.ones(data.shape[0])
 
     if guess_position is not None:
-        reduction_parameters.guess_position = guess_position
         position_absolute = image_coordinates.relative_yx_to_absolute_yx(
             guess_position, yx_center
         ).astype("int")
-    signal_position = np.array(reduction_parameters.guess_position)
+    signal_position = np.array(guess_position)
 
     if contrast_map is not None:
-        reduction_parameters.true_contrast = contrast_map[
+        true_contrast = contrast_map[
             position_absolute[0], position_absolute[1]
         ]
-    true_contrast = reduction_parameters.true_contrast
-    # if reduction_parameters.true_position is not None:
-    #     true_rhophi = image_coordinates.relative_yx_to_rhophi(
-    #         reduction_parameters.true_position)
+    else:
+        true_contrast = reduction_parameters.true_contrast
 
     planet_absolute_yx_pos = image_coordinates.relative_yx_to_absolute_yx(
         signal_position, yx_center
@@ -136,37 +138,28 @@ def trap_one_position(
         psf_model=flux_psf,
         image_center=yx_center_injection,
         norm=amplitude_modulation,
-        yx_anamorphism=reduction_parameters.yx_anamorphism,
+        yx_anamorphism=runtime.yx_anamorphism,
         right_handed=reduction_parameters.right_handed,
         subpixel=True,
         remove_interpolation_artifacts=True,
         copy=False,
     )
-    # injected_model_cube = makesource.addsource(
-    #     injected_model_cube, reduction_parameters.guess_position, pa,
-    #     flux_psf,
-    #     image_center=yx_center_injection,
-    #     norm=amplitude_modulation, jitter=0, poisson_noise=False,
-    #     yx_anamorphism=reduction_parameters.yx_anamorphism,
-    #     right_handed=reduction_parameters.right_handed,
-    #     verbose=False)
 
     signal_mask_local = injected_model_cube > 0.0
     signal_mask = np.any(signal_mask_local, axis=0)
     if (
-        reduction_parameters.reduction_mask_psf_size
-        == reduction_parameters.signal_mask_psf_size
+        runtime.reduction_mask_psf_size
+        == runtime.signal_mask_psf_size
     ):
-        # reduction_mask_local = signal_mask_local
         reduction_mask = signal_mask
     else:
         reduction_mask = regressor_selection.make_mask_from_psf_track(
             yx_position=signal_position,
-            psf_size=reduction_parameters.reduction_mask_psf_size,
+            psf_size=runtime.reduction_mask_psf_size,
             pa=pa,
             image_size=data.shape[-1],
             image_center=yx_center_injection,
-            yx_anamorphism=reduction_parameters.yx_anamorphism,
+            yx_anamorphism=runtime.yx_anamorphism,
             right_handed=reduction_parameters.right_handed,
             return_cube=False,
         )
@@ -250,6 +243,7 @@ def trap_one_position(
 
         regressor_pool_mask = regressor_selection.make_regressor_pool_for_pixel(
             reduction_parameters=reduction_parameters,
+            runtime=runtime,
             yx_pixel=planet_absolute_yx_pos,
             yx_dim=yx_dim,
             yx_center=yx_center,
@@ -268,6 +262,7 @@ def trap_one_position(
                 model=model,
                 pa=pa,
                 reduction_parameters=reduction_parameters,
+                runtime=runtime,
                 reduction_mask=reduction_mask_used,
                 regressor_pool_mask=regressor_pool_mask,
                 regressor_matrix=None,
@@ -282,6 +277,7 @@ def trap_one_position(
                 # model=None,
                 pa=pa,
                 reduction_parameters=reduction_parameters,
+                runtime=runtime,
                 planet_relative_yx_pos=signal_position,
                 reduction_mask=reduction_mask_used,
                 known_companion_mask=known_companion_mask,
@@ -303,6 +299,7 @@ def trap_one_position(
                 model=model,
                 pa=pa,
                 reduction_parameters=reduction_parameters,
+                runtime=runtime,
                 reduction_mask=reduction_mask_used,
                 regressor_pool_mask=regressor_pool_mask,
                 regressor_matrix=None,
@@ -326,6 +323,7 @@ def trap_one_position(
             model=model,
             pa=pa,
             reduction_parameters=reduction_parameters,
+            runtime=runtime,
             planet_relative_yx_pos=signal_position,
             reduction_mask=reduction_mask_used,
             yx_center=yx_center,
@@ -362,6 +360,7 @@ def trap_one_position(
                 model=None,
                 pa=pa,
                 reduction_parameters=reduction_parameters,
+                runtime=runtime,
                 planet_relative_yx_pos=signal_position,
                 reduction_mask=reduction_mask_used,
                 known_companion_mask=known_companion_mask,
@@ -415,9 +414,8 @@ def trap_one_position(
                 reduction_mask_used, ~bad_residual_mask
             )
 
-        reduction_parameters_alternative = copy(reduction_parameters)
-        reduction_parameters_alternative.spatial_components_fraction = (
-            reduction_parameters.spatial_components_fraction_after_trap
+        reduction_parameters_alternative = reduction_parameters.merge(
+            spatial_components_fraction=reduction_parameters.spatial_components_fraction_after_trap,
         )
 
         result = regression.run_trap_with_model_spatial(
@@ -425,6 +423,7 @@ def trap_one_position(
             model=model,
             pa=pa,
             reduction_parameters=reduction_parameters_alternative,
+            runtime=runtime,
             planet_relative_yx_pos=signal_position,
             reduction_mask=reduction_mask_used,
             yx_center=yx_center,
@@ -447,12 +446,107 @@ def trap_one_position(
     return results
 
 
+@dataclasses.dataclass
+class OutputPaths:
+    """File paths for all outputs associated with one reduction model key."""
+
+    detection_image: str
+    norm_detection_image: str
+    contrast_table: str
+    contrast_image: str
+    median_contrast_image: str
+    contrast_plot: str
+    correlation_matrix_binned: str = ""
+
+    @classmethod
+    def make(cls, result_folder, basename, key, sigma, corr=False):
+        infix = "_corr" if corr else ""
+        name = f"{basename}_{key}"
+        sigma_str = f"_sigma{sigma:.2f}"
+        return cls(
+            detection_image=os.path.join(
+                result_folder, f"detection{infix}_{name}.fits"
+            ),
+            norm_detection_image=os.path.join(
+                result_folder, f"norm_detection{infix}_{name}.fits"
+            ),
+            contrast_table=os.path.join(
+                result_folder, f"contrast_table{infix}_{name}.fits"
+            ),
+            contrast_image=os.path.join(
+                result_folder, f"contrast_image{infix}_{name}{sigma_str}.fits"
+            ),
+            median_contrast_image=os.path.join(
+                result_folder, f"median_contrast_image{infix}_{name}{sigma_str}.fits"
+            ),
+            contrast_plot=os.path.join(
+                result_folder, f"contrast_plot{infix}_{name}{sigma_str}.jpg"
+            ),
+            correlation_matrix_binned=os.path.join(
+                result_folder,
+                f"correlation_matrix_binned{infix}_{name}{sigma_str}.fits",
+            )
+            if corr
+            else "",
+        )
+
+
+def fill_detection_image(
+    detection_image,
+    detection_image_corr,
+    correlation_matrix_binned,
+    result,
+    yx,
+    inject_fake,
+    compute_residual_correlation,
+    use_residual_correlation,
+):
+    """Fill detection image arrays for a single position from a result dict."""
+    for key in detection_image:
+        if result[key] is not None:
+            detection_image[key][0][yx[0], yx[1]] = result[key].measured_contrast
+            detection_image[key][1][yx[0], yx[1]] = result[key].contrast_uncertainty
+            detection_image[key][2][yx[0], yx[1]] = result[key].snr
+            if inject_fake:
+                detection_image[key][3][yx[0], yx[1]] = result[key].true_contrast
+                detection_image[key][4][yx[0], yx[1]] = (
+                    result[key].measured_contrast - result[key].true_contrast
+                )
+                detection_image[key][5][yx[0], yx[1]] = (
+                    result[key].relative_deviation_from_true
+                )
+                detection_image[key][6][yx[0], yx[1]] = result[key].wrong_in_sigma
+            if compute_residual_correlation and use_residual_correlation:
+                detection_image_corr[key][0][yx[0], yx[1]] = (
+                    result[key].measured_contrast_with_corr
+                )
+                detection_image_corr[key][1][yx[0], yx[1]] = (
+                    result[key].contrast_uncertainty_with_corr
+                )
+                detection_image_corr[key][2][yx[0], yx[1]] = result[key].snr_with_corr
+                detection_image_corr[key][3][yx[0], yx[1]] = (
+                    result[key].correlation_info["corr_length_exponential"]
+                )
+                detection_image_corr[key][4][yx[0], yx[1]] = (
+                    result[key].correlation_info["corr_length_matern32"]
+                )
+                detection_image_corr[key][5][yx[0], yx[1]] = (
+                    result[key].correlation_info["corr_length_matern52"]
+                )
+                correlation_matrix_binned[key][:, yx[0], yx[1]] = (
+                    result[key]
+                    .correlation_info["summary_dataframe"]
+                    .empirical_correlation.values
+                )
+
+
 def run_trap_search(
     data,
     flux_psf,
     pa,
     reduction_parameters,
     known_companion_mask,
+    runtime=None,
     inverse_variance=None,
     bad_pixel_mask=None,
     yx_center=None,
@@ -594,7 +688,7 @@ def run_trap_search(
             (43, int(yx_dim[0] * oversampling), int(yx_dim[1] * oversampling))
         )
 
-    search_region = reduction_parameters.search_region
+    search_region = runtime.search_region if runtime is not None else reduction_parameters.search_region
     search_coordinates = np.argwhere(search_region) * oversampling
     # relative coordinates to output image center (i.e. position of star)
     relative_coords = np.array(
@@ -608,9 +702,8 @@ def run_trap_search(
         )
     )
     print("Number of positions: {}".format(len(relative_coords)))
+    ncpus = runtime.ncpus if runtime is not None else (reduction_parameters.ncpus or multiprocessing.cpu_count())
     if reduction_parameters.use_multiprocess:
-        if reduction_parameters.ncpus is None:
-            reduction_parameters.ncpus = multiprocessing.cpu_count()
         num_ticks = len(relative_coords)
         if use_progress_bar:
             pb = ProgressBar(num_ticks)
@@ -620,7 +713,7 @@ def run_trap_search(
             actor = None
 
         # Use more chunks than CPUs to prevent long idle time in case one job finishes quicker
-        number_of_chunks = round(reduction_parameters.ncpus * 2)
+        number_of_chunks = round(ncpus * 2)
 
         (
             search_coordinates,
@@ -659,6 +752,7 @@ def run_trap_search(
                     flux_psf=flux_psf_id,
                     pa=pa_id,
                     reduction_parameters=reduction_parameters,
+                    runtime=runtime,
                     known_companion_mask=known_companion_mask_id,
                     bad_pixel_mask=bad_pixel_mask_id,
                     yx_center=yx_center,
@@ -678,65 +772,17 @@ def run_trap_search(
         results = [item for sublist in results for item in sublist]
 
         for idx, result in enumerate(results):
-            for key in detection_image:
-                if result[key] is not None:
-                    detection_image[key][0][
-                        search_coordinates[idx][0], search_coordinates[idx][1]
-                    ] = result[key].measured_contrast
-                    detection_image[key][1][
-                        search_coordinates[idx][0], search_coordinates[idx][1]
-                    ] = result[key].contrast_uncertainty
-                    detection_image[key][2][
-                        search_coordinates[idx][0], search_coordinates[idx][1]
-                    ] = result[key].snr
-                    if reduction_parameters.inject_fake:
-                        detection_image[key][3][
-                            search_coordinates[idx][0], search_coordinates[idx][1]
-                        ] = result[key].true_contrast
-                        detection_image[key][4][
-                            search_coordinates[idx][0], search_coordinates[idx][1]
-                        ] = (result[key].measured_contrast - result[key].true_contrast)
-                        detection_image[key][5][
-                            search_coordinates[idx][0], search_coordinates[idx][1]
-                        ] = result[key].relative_deviation_from_true
-                        detection_image[key][6][
-                            search_coordinates[idx][0], search_coordinates[idx][1]
-                        ] = result[key].wrong_in_sigma
+            fill_detection_image(
+                detection_image,
+                detection_image_corr,
+                correlation_matrix_binned,
+                result,
+                search_coordinates[idx],
+                reduction_parameters.inject_fake,
+                reduction_parameters.compute_residual_correlation,
+                reduction_parameters.use_residual_correlation,
+            )
 
-                    # NOTE: Should be include in results class or dictionary to avoid code duplication
-                    if (
-                        reduction_parameters.compute_residual_correlation
-                        and reduction_parameters.use_residual_correlation
-                    ):
-                        detection_image_corr[key][0][
-                            search_coordinates[idx][0], search_coordinates[idx][1]
-                        ] = result[key].measured_contrast_with_corr
-                        detection_image_corr[key][1][
-                            search_coordinates[idx][0], search_coordinates[idx][1]
-                        ] = result[key].contrast_uncertainty_with_corr
-                        detection_image_corr[key][2][
-                            search_coordinates[idx][0], search_coordinates[idx][1]
-                        ] = result[key].snr_with_corr
-                        detection_image_corr[key][3][
-                            search_coordinates[idx][0], search_coordinates[idx][1]
-                        ] = result[key].correlation_info["corr_length_exponential"]
-                        detection_image_corr[key][4][
-                            search_coordinates[idx][0], search_coordinates[idx][1]
-                        ] = result[key].correlation_info["corr_length_matern32"]
-                        detection_image_corr[key][5][
-                            search_coordinates[idx][0], search_coordinates[idx][1]
-                        ] = result[key].correlation_info["corr_length_matern52"]
-
-                        correlation_matrix_binned[key][
-                            :, search_coordinates[idx][0], search_coordinates[idx][1]
-                        ] = (
-                            result[key]
-                            .correlation_info["summary_dataframe"]
-                            .empirical_correlation.values
-                        )
-
-        #     del result
-        # del pool
         b = datetime.datetime.now()
     else:
         a = datetime.datetime.now()
@@ -756,6 +802,7 @@ def run_trap_search(
                 pa=pa,
                 reduction_parameters=reduction_parameters,
                 known_companion_mask=known_companion_mask,
+                runtime=runtime,
                 bad_pixel_mask=bad_pixel_mask,
                 yx_center=yx_center,
                 yx_center_injection=yx_center_injection,
@@ -763,61 +810,16 @@ def run_trap_search(
                 contrast_map=contrast_map,
                 readnoise=readnoise,
             )
-            for key in detection_image:
-                if result[key] is not None:
-                    detection_image[key][0][
-                        search_coordinates[idx][0], search_coordinates[idx][1]
-                    ] = result[key].measured_contrast
-                    detection_image[key][1][
-                        search_coordinates[idx][0], search_coordinates[idx][1]
-                    ] = result[key].contrast_uncertainty
-                    detection_image[key][2][
-                        search_coordinates[idx][0], search_coordinates[idx][1]
-                    ] = result[key].snr
-                    if reduction_parameters.inject_fake:
-                        detection_image[key][3][
-                            search_coordinates[idx][0], search_coordinates[idx][1]
-                        ] = result[key].true_contrast
-                        detection_image[key][4][
-                            search_coordinates[idx][0], search_coordinates[idx][1]
-                        ] = (result[key].measured_contrast - result[key].true_contrast)
-                        detection_image[key][5][
-                            search_coordinates[idx][0], search_coordinates[idx][1]
-                        ] = result[key].relative_deviation_from_true
-                        detection_image[key][6][
-                            search_coordinates[idx][0], search_coordinates[idx][1]
-                        ] = result[key].wrong_in_sigma
-                    # NOTE: Should be include in results class or dictionary to avoid code duplication
-                    if (
-                        reduction_parameters.compute_residual_correlation
-                        and reduction_parameters.use_residual_correlation
-                    ):
-                        detection_image_corr[key][0][
-                            search_coordinates[idx][0], search_coordinates[idx][1]
-                        ] = result[key].measured_contrast_with_corr
-                        detection_image_corr[key][1][
-                            search_coordinates[idx][0], search_coordinates[idx][1]
-                        ] = result[key].contrast_uncertainty_with_corr
-                        detection_image_corr[key][2][
-                            search_coordinates[idx][0], search_coordinates[idx][1]
-                        ] = result[key].snr_with_corr
-                        detection_image_corr[key][3][
-                            search_coordinates[idx][0], search_coordinates[idx][1]
-                        ] = result[key].correlation_info["corr_length_exponential"]
-                        detection_image_corr[key][4][
-                            search_coordinates[idx][0], search_coordinates[idx][1]
-                        ] = result[key].correlation_info["corr_length_matern32"]
-                        detection_image_corr[key][5][
-                            search_coordinates[idx][0], search_coordinates[idx][1]
-                        ] = result[key].correlation_info["corr_length_matern52"]
-                        correlation_matrix_binned[key][
-                            :, search_coordinates[idx][0], search_coordinates[idx][1]
-                        ] = (
-                            result[key]
-                            .correlation_info["summary_dataframe"]
-                            .empirical_correlation.values
-                        )
-
+            fill_detection_image(
+                detection_image,
+                detection_image_corr,
+                correlation_matrix_binned,
+                result,
+                search_coordinates[idx],
+                reduction_parameters.inject_fake,
+                reduction_parameters.compute_residual_correlation,
+                reduction_parameters.use_residual_correlation,
+            )
             del result
         b = datetime.datetime.now()
     c = b - a
@@ -841,6 +843,7 @@ def multi_position_cross_validation(
     pa,
     reduction_parameters,
     known_companion_mask,
+    runtime=None,
     inverse_variance=None,
     bad_pixel_mask=None,
     result_name=None,
@@ -909,53 +912,18 @@ def multi_position_cross_validation(
     if inverse_variance is not None:
         inverse_variance = inverse_variance.astype("float64")
 
-    # oversampling = reduction_parameters.oversampling
     yx_dim = (data.shape[-2], data.shape[-1])
-    # yx_center_output = (yx_dim[0] // 2, yx_dim[1] // 2)
     if yx_center is None:
         yx_center = (yx_dim[0] // 2, yx_dim[1] // 2)
 
     if amplitude_modulation is None:
         amplitude_modulation = np.ones(data.shape[0])
 
-    # detection_image = {}
-    # if reduction_parameters.temporal_model:
-    #     detection_image['temporal'] = np.zeros(
-    #         (detection_image_dim, int(yx_dim[0] * oversampling), int(yx_dim[1] * oversampling)))
-
-    # search_region = reduction_parameters.search_region
-    # search_coordinates = np.argwhere(search_region) * oversampling
-    # # relative coordinates to output image center (i.e. position of star)
-    # relative_coords = np.array(list(map(
-    #     lambda x: image_coordinates.absolute_yx_to_relative_yx(x, yx_center_output),
-    #     search_coordinates.tolist())))
-
-    # search_coordinates = np.array(
-    #     list(
-    #         map(
-    #             lambda x: image_coordinates.relative_yx_to_absolute_yx(
-    #                 x, yx_center_output
-    #             ),
-    #             relative_coords.tolist(),
-    #         )
-    #     )
-    # )
-
     print("Number of positions: {}".format(len(relative_coords)))
     if reduction_parameters.use_multiprocess:
-        if reduction_parameters.ncpus is None:
-            reduction_parameters.ncpus = multiprocessing.cpu_count()
         num_ticks = len(relative_coords)
         pb = ProgressBar(num_ticks)
         actor = pb.actor
-
-        # Use more chunks than CPUs to prevent long idle time in case one job finishes quicker
-        # number_of_chunks = round(reduction_parameters.ncpus * 2)
-
-        # search_coordinates, relative_coords, relative_coords_regions, iteration, separation_equalized = shuffle_and_equalize_relative_positions(
-        #     search_coordinates, relative_coords, number_of_chunks,
-        #     max_separation_deviation=2, max_iterations=50, rng=None)
-        # print('Number of positions per chunk: {}'.format(len(relative_coords_regions[0])))
 
         a = datetime.datetime.now()
         data_id = ray.put(data)
@@ -977,6 +945,7 @@ def multi_position_cross_validation(
                     flux_psf=flux_psf_id,
                     pa=pa_id,
                     reduction_parameters=reduction_parameters,
+                    runtime=runtime,
                     known_companion_mask=known_companion_mask_id,
                     bad_pixel_mask=bad_pixel_mask_id,
                     yx_center=yx_center,
@@ -1015,6 +984,7 @@ def multi_position_cross_validation(
                 pa=pa,
                 reduction_parameters=reduction_parameters,
                 known_companion_mask=known_companion_mask,
+                runtime=runtime,
                 bad_pixel_mask=bad_pixel_mask,
                 yx_center=yx_center,
                 yx_center_injection=yx_center_injection,
@@ -1040,6 +1010,7 @@ def trap_search_region(
     pa,
     reduction_parameters,
     known_companion_mask,
+    runtime=None,
     inverse_variance=None,
     bad_pixel_mask=None,
     result_name=None,
@@ -1113,6 +1084,7 @@ def trap_search_region(
             pa=pa,
             reduction_parameters=reduction_parameters,
             known_companion_mask=known_companion_mask,
+            runtime=runtime,
             bad_pixel_mask=bad_pixel_mask,
             yx_center=yx_center,
             yx_center_injection=yx_center_injection,
@@ -1233,12 +1205,8 @@ def run_complete_reduction(
 
     """
 
-    # Handle both legacy Reduction_parameters and modern TrapConfig
-    # Convert TrapConfig to legacy format for compatibility
-    if hasattr(reduction_parameters, 'get_reduction_parameters'):
-        # This is a TrapConfig object, convert to legacy format
-        reduction_parameters = reduction_parameters.get_reduction_parameters()
-    # If it's already a Reduction_parameters object, use it as-is
+    # Convert any input type to TrapReductionConfig (frozen, immutable)
+    reduction_parameters = _to_reduction_config(reduction_parameters)
 
     if bad_frames is None:
         bad_frames = []
@@ -1266,16 +1234,6 @@ def run_complete_reduction(
         #     verbose=True)
 
     instrument.compute_fwhm()
-    
-    if reduction_parameters.reduce_single_position:
-        guess_position_separation = np.sqrt(
-            reduction_parameters.guess_position[0] ** 2
-            + reduction_parameters.guess_position[1] ** 2
-        )
-        print("Adjusting outer bound to fit guess position")
-        reduction_parameters.search_region_outer_bound = int(
-            np.ceil(guess_position_separation) + 5
-        )
 
     if reduction_parameters.autosize_masks_in_lambda_over_d:
         assert (
@@ -1291,10 +1249,6 @@ def run_complete_reduction(
             size_in_lamda_over_d=reduction_parameters.reduction_mask_size_in_lambda_over_d,
         )
     else:
-        assert (
-            reduction_parameters.signal_mask_size
-            >= reduction_parameters.reduction_mask_size
-        ), "Signal mask size must be >= reduction mask size"
         stamp_sizes = np.repeat(
             reduction_parameters.signal_mask_psf_size, len(instrument.wavelengths)
         )
@@ -1354,59 +1308,16 @@ def run_complete_reduction(
                 "The center varies by a maximum of in x or y: {}".format(max_shift / 2)
             )
         # print("Center variation: {}".format(np.std(amplitude_modulation_full, axis=0)))
-    reduction_parameters.yx_anamorphism = np.array(reduction_parameters.yx_anamorphism)
 
-    # Decide crop size for images
-    if reduction_parameters.data_auto_crop:
-        # Automatically determine smallest size to crop data
-        reduction_parameters.data_crop_size = np.ceil(
-            reduction_parameters.search_region_outer_bound * 2
-            + np.max(stamp_sizes) * np.sqrt(2)
-            + max_shift
-        )
-        if reduction_parameters.add_radial_regressors:
-            # NOTE: Hardcoded binary dilation used right now.
-            reduction_parameters.data_crop_size += 14
-        reduction_parameters.data_crop_size = int(
-            round_up_to_odd(reduction_parameters.data_crop_size)
-        )
-        yx_dim = (
-            reduction_parameters.data_crop_size,
-            reduction_parameters.data_crop_size,
-        )
-        if reduction_parameters.data_crop_size > data_full.shape[-1]:
-            raise ValueError(
-                f"Data crop size {reduction_parameters.data_crop_size} is larger than input image size: {data_full.shape[-1]}"
-            )
-        print(
-            "Auto crop size cropped data to: {}".format(
-                reduction_parameters.data_crop_size
-            )
-        )
-    else:
-        if reduction_parameters.search_region is None:
-            if reduction_parameters.data_crop_size is None:
-                yx_dim = (data_full.shape[-2], data_full.shape[-1])
-            else:
-                yx_dim = (
-                    reduction_parameters.data_crop_size,
-                    reduction_parameters.data_crop_size,
-                )
-        else:
-            yx_dim = (
-                reduction_parameters.search_region.shape[-2],
-                reduction_parameters.search_region.shape[-1],
-            )
-    data_crop_size = reduction_parameters.data_crop_size
-
-    if reduction_parameters.search_region is None:
-        reduction_parameters.search_region = regressor_selection.make_annulus_mask(
-            reduction_parameters.search_region_inner_bound,
-            reduction_parameters.search_region_outer_bound,
-            yx_dim=yx_dim,
-            oversampling=reduction_parameters.oversampling,
-            yx_center=None,
-        )
+    # Build runtime state (replaces all mutations of reduction_parameters)
+    runtime = build_runtime_state(
+        config=reduction_parameters,
+        data_shape=data_full.shape,
+        stamp_sizes=stamp_sizes,
+        stamp_sizes_reduction=stamp_sizes_reduction,
+        max_shift=max_shift,
+    )
+    data_crop_size = runtime.data_crop_size
 
     # Configure PSF amplitude variation
     if amplitude_modulation_full is not None:
@@ -1420,60 +1331,6 @@ def run_complete_reduction(
         print(
             "Amplitude variation: {}".format(np.std(amplitude_modulation_full, axis=1))
         )
-
-    # Configure known companion information
-    if reduction_parameters.yx_known_companion_position is not None:
-        reduction_parameters.yx_known_companion_position = np.array(
-            reduction_parameters.yx_known_companion_position
-        )
-        # If ndim == 1, just one companion present, make new dimension for more companions
-        if reduction_parameters.yx_known_companion_position.ndim == 1:
-            reduction_parameters.yx_known_companion_position = np.expand_dims(
-                reduction_parameters.yx_known_companion_position, axis=0
-            )
-        elif reduction_parameters.yx_known_companion_position.ndim > 2:
-            raise ValueError(
-                "Dimensionality of known companion position array too large."
-            )
-
-    if (
-        reduction_parameters.known_companion_contrast is not None
-        and reduction_parameters.remove_known_companions
-    ):
-        assert (
-            reduction_parameters.yx_known_companion_position is not None
-        ), "No position for known companion given."
-
-        reduction_parameters.known_companion_contrast = np.array(
-            reduction_parameters.known_companion_contrast
-        )
-
-        number_of_wavelengths = data_full.shape[0]
-        number_of_companions = reduction_parameters.yx_known_companion_position.shape[0]
-
-        assert (
-            reduction_parameters.known_companion_contrast.shape[-1]
-            == number_of_companions
-        ), "The same number of known companion position and contrasts need to be provided."
-
-        if (
-            reduction_parameters.known_companion_contrast.ndim == 1
-            and number_of_wavelengths == 1
-        ):
-            reduction_parameters.known_companion_contrast = np.expand_dims(
-                reduction_parameters.known_companion_contrast, axis=0
-            )
-        elif (
-            reduction_parameters.known_companion_contrast.ndim == 1
-            and number_of_wavelengths > 1
-        ):
-            raise ValueError(
-                "For multi-wavelength data, a known contrast has to be defined for every wavelength."
-            )
-        elif reduction_parameters.known_companion_contrast.ndim > 2:
-            raise ValueError(
-                "Dimensionality of known companion contrast array too large."
-            )
 
     # Configure number of principal components
 
@@ -1493,7 +1350,12 @@ def run_complete_reduction(
     # Save parameters
     if not reduction_parameters.reduce_single_position:
         save_object(instrument, os.path.join(result_folder, "instrument.obj"))
-        save_object(reduction_parameters, os.path.join(result_folder, "reduction_parameters.obj"))
+        # Save both modern config and legacy format for detection.py backward compat
+        save_object(reduction_parameters, os.path.join(result_folder, "reduction_config.obj"))
+        save_object(
+            reduction_parameters.to_reduction_parameters(),
+            os.path.join(result_folder, "reduction_parameters.obj"),
+        )
 
     assert (
         flux_psf_full.shape[0] == data_full.shape[0] == len(instrument.wavelengths)
@@ -1517,15 +1379,11 @@ def run_complete_reduction(
         and not reduction_parameters.reduce_single_position
     ):
         ray.init(
-            num_cpus=min(reduction_parameters.ncpus, multiprocessing.cpu_count()),
+            num_cpus=min(runtime.ncpus, multiprocessing.cpu_count()),
             # log_to_driver=False,
             logging_level=logging.WARNING)
-        
+
     for comp_index, ncomp in enumerate(number_of_components):
-        reduction_parameters.number_of_pca_regressors = ncomp
-        reduction_parameters.temporal_components_fraction = (
-            temporal_components_fraction[comp_index]
-        )
         print(
             "Number of principal comp. used: {} of {}".format(ncomp, data_full.shape[1])
         )
@@ -1550,7 +1408,14 @@ def run_complete_reduction(
             )
             if prefix is None:
                 prefix = ""
-            reduction_parameters.fwhm = instrument.fwhm[wavelength_index].value
+            # Update per-iteration runtime state
+            runtime = runtime.for_iteration(
+                number_of_pca_regressors=ncomp,
+                temporal_components_fraction=temporal_components_fraction[comp_index],
+                fwhm=instrument.fwhm[wavelength_index].value,
+                reduction_mask_psf_size=int(stamp_sizes_reduction[wavelength_index]),
+                signal_mask_psf_size=int(stamp_sizes[wavelength_index]),
+            )
             basename = {}
             if reduction_parameters.inject_fake:
                 basename[
@@ -1609,136 +1474,30 @@ def run_complete_reduction(
                 )
             print(basename["temporal"])
 
-            detection_image_path = {}
-            norm_detection_image_path = {}
-            contrast_table_path = {}
-            contrast_image_path = {}
-            median_contrast_image_path = {}
-            contrast_plot_path = {}
-
-            # NOTE: Temporarily added for correlation, complex outputs should be implemented as in separate class
-            # or dictionary to reduce code duplication
-            if (
-                reduction_parameters.compute_residual_correlation
-                and reduction_parameters.use_residual_correlation
-            ):
-                detection_image_corr_path = {}
-                norm_detection_image_corr_path = {}
-                contrast_table_corr_path = {}
-                contrast_image_corr_path = {}
-                median_contrast_image_corr_path = {}
-                contrast_plot_corr_path = {}
-                correlation_matrix_binned_path = {}
-
             # Having all the different reductions in the output makes it easier to compare but also more complex to refactor
             # Since individual outputs cannot be checked for existence
+            sigma = reduction_parameters.contrast_curve_sigma
+            use_corr = (
+                reduction_parameters.compute_residual_correlation
+                and reduction_parameters.use_residual_correlation
+            )
+            output_paths = {}
+            output_paths_corr = {}
             for key in ["temporal", "temporal_plus_spatial", "spatial"]:
-                detection_image_path[key] = os.path.join(
-                    result_folder, "detection_" + basename[key] + "_" + key + ".fits"
+                output_paths[key] = OutputPaths.make(
+                    result_folder, basename[key], key, sigma
                 )
+                if use_corr:
+                    output_paths_corr[key] = OutputPaths.make(
+                        result_folder, basename[key], key, sigma, corr=True
+                    )
                 # If output file with basename already exists, skip reduction
                 if not overwrite and not reduction_parameters.reduce_single_position:
-                    if os.path.exists(detection_image_path[key]):
-                        print(f"Reduction already exists for {detection_image_path[key]} - skipping.")
-                        return None   
-                    
-                norm_detection_image_path[key] = os.path.join(
-                    result_folder,
-                    "norm_detection_" + basename[key] + "_" + key + ".fits",
-                )
-                contrast_table_path[key] = os.path.join(
-                    result_folder,
-                    "contrast_table_" + basename[key] + "_" + key + ".fits",
-                )
-                contrast_image_path[key] = os.path.join(
-                    result_folder,
-                    "contrast_image_"
-                    + basename[key]
-                    + "_"
-                    + key
-                    + "_sigma{:.2f}.fits".format(
-                        reduction_parameters.contrast_curve_sigma
-                    ),
-                )
-                median_contrast_image_path[key] = os.path.join(
-                    result_folder,
-                    "median_contrast_image_"
-                    + basename[key]
-                    + "_"
-                    + key
-                    + "_sigma{:.2f}.fits".format(
-                        reduction_parameters.contrast_curve_sigma
-                    ),
-                )
-                contrast_plot_path[key] = os.path.join(
-                    result_folder,
-                    "contrast_plot_"
-                    + basename[key]
-                    + "_"
-                    + key
-                    + "_sigma{:.2f}.jpg".format(
-                        reduction_parameters.contrast_curve_sigma
-                    ),
-                )
-
-                # NOTE: Temporarily added for correlation, complex outputs should be implemented as in separate class
-                # or dictionary to reduce code duplication
-                if (
-                    reduction_parameters.compute_residual_correlation
-                    and reduction_parameters.use_residual_correlation
-                ):
-                    detection_image_corr_path[key] = os.path.join(
-                        result_folder,
-                        "detection_corr_" + basename[key] + "_" + key + ".fits",
-                    )
-                    norm_detection_image_corr_path[key] = os.path.join(
-                        result_folder,
-                        "norm_detection_corr_" + basename[key] + "_" + key + ".fits",
-                    )
-                    contrast_table_corr_path[key] = os.path.join(
-                        result_folder,
-                        "contrast_table_corr_" + basename[key] + "_" + key + ".fits",
-                    )
-                    contrast_image_corr_path[key] = os.path.join(
-                        result_folder,
-                        "contrast_image_corr_"
-                        + basename[key]
-                        + "_"
-                        + key
-                        + "_sigma{:.2f}.fits".format(
-                            reduction_parameters.contrast_curve_sigma
-                        ),
-                    )
-                    median_contrast_image_corr_path[key] = os.path.join(
-                        result_folder,
-                        "median_contrast_image_corr_"
-                        + basename[key]
-                        + "_"
-                        + key
-                        + "_sigma{:.2f}.fits".format(
-                            reduction_parameters.contrast_curve_sigma
-                        ),
-                    )
-                    contrast_plot_corr_path[key] = os.path.join(
-                        result_folder,
-                        "contrast_plot_corr_"
-                        + basename[key]
-                        + "_"
-                        + key
-                        + "_sigma{:.2f}.jpg".format(
-                            reduction_parameters.contrast_curve_sigma
-                        ),
-                    )
-                    correlation_matrix_binned_path[key] = os.path.join(
-                        result_folder,
-                        "correlation_matrix_binned_"
-                        + basename[key]
-                        + "_"
-                        + key
-                        + "_sigma{:.2f}.fits".format(
-                            reduction_parameters.contrast_curve_sigma
-                        ),
-                    )
+                    if os.path.exists(output_paths[key].detection_image):
+                        print(
+                            f"Reduction already exists for {output_paths[key].detection_image} - skipping."
+                        )
+                        return None
 
             # if reduction_parameters.temporal_plus_spatial_model:
             #     contrast_plot_comparison_path = os.path.join(
@@ -1749,15 +1508,6 @@ def run_complete_reduction(
             #             reduction_parameters.contrast_curve_sigma
             #         ),
             #     )
-
-            # if reduction_parameters.autosize_masks_in_lambda_over_d:
-            reduction_parameters.reduction_mask_psf_size = int(
-                stamp_sizes_reduction[wavelength_index]
-            )
-            reduction_parameters.signal_mask_psf_size = int(
-                stamp_sizes[wavelength_index]
-            )
-            # reduction_parameters.signal_mask_psf_size = int(stamp_sizes[wavelength_index])
 
             # This block defines yx_center which gives the center of the output file
             # based on cropping or no cropping
@@ -1779,8 +1529,8 @@ def run_complete_reduction(
             # Do this for each wavelength separately to account for PSF size
             # and differing center position
             if (
-                reduction_parameters.yx_known_companion_position is not None
-                and len(reduction_parameters.yx_known_companion_position) > 0
+                runtime.yx_known_companion_position is not None
+                and len(runtime.yx_known_companion_position) > 0
             ):
                 if yx_center_injection_full is not None:
                     yx_center_before_crop = yx_center_injection_full[
@@ -1790,15 +1540,15 @@ def run_complete_reduction(
                     yx_center_before_crop = None
 
                 known_companion_masks = []
-                for yx_pos in reduction_parameters.yx_known_companion_position:
+                for yx_pos in runtime.yx_known_companion_position:
                     # TODO: CHECK
                     known_companion_mask = regressor_selection.make_mask_from_psf_track(
                         yx_position=yx_pos,
-                        psf_size=reduction_parameters.signal_mask_psf_size,
+                        psf_size=runtime.signal_mask_psf_size,
                         pa=pa,
                         image_size=data_full.shape[-1],
                         image_center=yx_center_before_crop,
-                        yx_anamorphism=reduction_parameters.yx_anamorphism,
+                        yx_anamorphism=runtime.yx_anamorphism,
                         right_handed=reduction_parameters.right_handed,
                         return_cube=False,
                     )
@@ -1813,8 +1563,6 @@ def run_complete_reduction(
                     ).copy()
             else:
                 known_companion_mask = None
-
-            known_companion_mask = None
 
             if reduction_parameters.inject_fake:
                 # Return copy of data when injecting fake to not contaminate data
@@ -1896,7 +1644,7 @@ def run_complete_reduction(
                 reduction_parameters.inject_fake
                 and reduction_parameters.read_injection_files
             ):
-                input_contrast_image_path = contrast_image_path["temporal"].replace(
+                input_contrast_image_path = output_paths["temporal"].contrast_image.replace(
                     "injectedsigma{:.2f}_".format(reduction_parameters.injection_sigma),
                     "",
                 )
@@ -1943,30 +1691,30 @@ def run_complete_reduction(
                 # NOTE: This currently doesn't remove photon noise from variance map
                 # NOTE: Should change to faster implementation of `inject_model_into_data`
 
-                for companion_index, known_companion_contrast in enumerate(
-                    reduction_parameters.known_companion_contrast[wavelength_index]
+                for companion_index, kc_contrast in enumerate(
+                    runtime.known_companion_contrast[wavelength_index]
                 ):
                     # NOTE: Check format of known_companion_contrast and amplitude_modulation
-                    known_companion_contrast *= amplitude_modulation
+                    kc_contrast = kc_contrast * amplitude_modulation
 
                     data = makesource.addsource(
                         data,
-                        reduction_parameters.yx_known_companion_position[
+                        runtime.yx_known_companion_position[
                             companion_index
                         ],
                         pa,
                         flux_psf,
                         image_center=yx_center_injection,
-                        norm=-1 * known_companion_contrast,
+                        norm=-1 * kc_contrast,
                         jitter=0,
                         poisson_noise=False,
-                        yx_anamorphism=reduction_parameters.yx_anamorphism,
+                        yx_anamorphism=runtime.yx_anamorphism,
                         right_handed=reduction_parameters.right_handed,
                         subpixel=True,
                         verbose=False,
                     )
 
-            print("PSF Size: {}".format(reduction_parameters.reduction_mask_psf_size))
+            print("PSF Size: {}".format(runtime.reduction_mask_psf_size))
             if reduction_parameters.reduce_single_position:
                 results = trap_one_position(
                     reduction_parameters.guess_position,
@@ -1976,6 +1724,7 @@ def run_complete_reduction(
                     pa=pa,
                     reduction_parameters=reduction_parameters,
                     known_companion_mask=known_companion_mask,
+                    runtime=runtime,
                     bad_pixel_mask=bad_pixel_mask,
                     yx_center=yx_center,
                     yx_center_injection=yx_center_injection,
@@ -2027,6 +1776,7 @@ def run_complete_reduction(
                         pa=pa,
                         reduction_parameters=reduction_parameters,
                         known_companion_mask=known_companion_mask,
+                        runtime=runtime,
                         bad_pixel_mask=bad_pixel_mask,
                         yx_center=yx_center,
                         yx_center_injection=yx_center_injection,
@@ -2056,6 +1806,7 @@ def run_complete_reduction(
                     pa=pa,
                     reduction_parameters=reduction_parameters,
                     known_companion_mask=known_companion_mask,
+                    runtime=runtime,
                     bad_pixel_mask=bad_pixel_mask,
                     yx_center=yx_center,
                     yx_center_injection=yx_center_injection,
@@ -2065,26 +1816,20 @@ def run_complete_reduction(
                     use_progress_bar=use_progress_bar,
                 )
 
-                # NOTE: Moved out from run_trap_search
                 for key in detection_image:
                     fits.writeto(
-                        detection_image_path[key],
+                        output_paths[key].detection_image,
                         detection_image[key],
-                        overwrite=True
+                        overwrite=True,
                     )
-                    # NOTE: Temporarily added for correlation, complex outputs should be implemented as in separate class
-                    # or dictionary to reduce code duplication
-                    if (
-                        reduction_parameters.compute_residual_correlation
-                        and reduction_parameters.use_residual_correlation
-                    ):
+                    if use_corr:
                         fits.writeto(
-                            detection_image_corr_path[key],
+                            output_paths_corr[key].detection_image,
                             detection_image_corr[key],
                             overwrite=True,
                         )
                         fits.writeto(
-                            correlation_matrix_binned_path[key],
+                            output_paths_corr[key].correlation_matrix_binned,
                             correlation_matrix_binned[key],
                             overwrite=True,
                         )

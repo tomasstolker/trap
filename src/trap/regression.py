@@ -20,7 +20,6 @@ from sklearn.model_selection import train_test_split
 from tqdm import tqdm
 
 from trap import image_coordinates, pca_regression, plotting_tools, regressor_selection
-from trap.embed_shell import ipsh
 from trap.utils import (
     compute_empirical_correlation_matrix,
     det_max_ncomp_specific,
@@ -448,7 +447,7 @@ class Result(object):
         for i in range(self.n_reduction_pix):
             g_init = models.Gaussian1D(amplitude=1., mean=0, stddev=1.)
             fit_g = fitting.LevMarLSQFitter()
-            hist = np.histogram(self.residuals[i, :], normed=True)
+            hist = np.histogram(self.residuals[i, :], density=True)
             centers = np.diff(hist[1]) / 2 + hist[1][:-1]
             g = fit_g(g_init, x=centers, y=hist[0])
             plt.plot(x, g(x))
@@ -501,6 +500,7 @@ class Result(object):
 def run_trap_with_model_temporal(
         data, model, pa, reduction_parameters,
         planet_relative_yx_pos, reduction_mask,
+        runtime=None,
         yx_center=None,
         yx_center_injection=None,
         inverse_variance_reduction_area=None,
@@ -585,7 +585,7 @@ def run_trap_with_model_temporal(
     """
 
     local_model = reduction_parameters.local_temporal_model
-    number_of_pca_regressors = reduction_parameters.number_of_pca_regressors
+    number_of_pca_regressors = runtime.number_of_pca_regressors if runtime is not None else reduction_parameters.number_of_pca_regressors
     pca_scaling = reduction_parameters.pca_scaling
     make_reconstructed_lightcurve = reduction_parameters.make_reconstructed_lightcurve
     compute_inverse_once = reduction_parameters.compute_inverse_once
@@ -943,9 +943,6 @@ def run_trap_with_model_temporal(
                     handles, labels = ax.get_legend_handles_labels()
                     ax.legend(handles[::-1], labels[::-1], loc='upper right')
                     plt.title('Principal component lightcurves')
-                    # plt.ylim(-1, 5)
-                    # plt.xlim(0, 300)
-                    # plt.show()
                     plt.savefig(os.path.join(diagnostic_image_folder,
                                 'principal_component_lightcurves_normalized_to_overall_variance.png'), dpi=300)
 
@@ -963,9 +960,6 @@ def run_trap_with_model_temporal(
                     handles, labels = ax.get_legend_handles_labels()
                     ax.legend(handles[::-1], labels[::-1], loc='upper right')
                     plt.title('Principal component lightcurves')
-                    # plt.ylim(-1, 5)
-                    # plt.xlim(0, 300)
-                    # plt.show()
                     plt.savefig(os.path.join(diagnostic_image_folder,
                                 'principal_component_lightcurves.png'), dpi=300)
 
@@ -1028,6 +1022,7 @@ def run_trap_with_model_spatial(
         reduction_parameters,
         planet_relative_yx_pos,
         reduction_mask,
+        runtime=None,
         yx_center=None,
         yx_center_injection=None,
         inverse_variance_reduction_area=None,
@@ -1116,9 +1111,10 @@ def run_trap_with_model_spatial(
     separation = np.sqrt(
         planet_relative_yx_pos[0]**2 + planet_relative_yx_pos[1]**2)
 
+    fwhm = runtime.fwhm if runtime is not None else reduction_parameters.fwhm
     _, time_masks = det_max_ncomp_specific(
         r_planet=separation,
-        fwhm=reduction_parameters.fwhm,
+        fwhm=fwhm,
         delta=reduction_parameters.protection_angle,
         pa=pa)
 
@@ -1310,7 +1306,8 @@ def run_trap_with_model_wavelength(
         true_contrast=None,
         return_input_data=False,
         plot_all_diagnostics=False,
-        verbose=False):
+        verbose=False,
+        runtime=None):
     """Core function of the TRAP analysis. Builds the temporal regression
     model and perform model fitting for all time series vectors in the
     `reduction_mask` as described in Samland et al. 2020.
@@ -1382,7 +1379,7 @@ def run_trap_with_model_wavelength(
     """
 
     local_model = reduction_parameters.local_temporal_model
-    number_of_pca_regressors = reduction_parameters.number_of_pca_regressors
+    number_of_pca_regressors = runtime.number_of_pca_regressors if runtime is not None else reduction_parameters.number_of_pca_regressors
     pca_scaling = reduction_parameters.pca_scaling
     make_reconstructed_lightcurve = reduction_parameters.make_reconstructed_lightcurve
     compute_inverse_once = reduction_parameters.compute_inverse_once
@@ -1706,6 +1703,7 @@ def run_trap_with_model_wavelength(
 def run_trap_with_model_temporal_optimized(
         data, model, pa, reduction_parameters,
         reduction_mask,
+        runtime=None,
         inverse_variance_reduction_area=None,
         regressor_matrix=None,
         regressor_pool_mask=None):
@@ -1761,7 +1759,8 @@ def run_trap_with_model_temporal_optimized(
     B_full, _, _, _ = pca_regression.compute_SVD(
         training_matrix, n_components=None,
         scaling=reduction_parameters.pca_scaling)
-    B = B_full[:, :reduction_parameters.number_of_pca_regressors]
+    _n_pca = runtime.number_of_pca_regressors if runtime is not None else reduction_parameters.number_of_pca_regressors
+    B = B_full[:, :_n_pca]
     constant_offset = np.ones(ntime)
 
     for idx, _ in enumerate(reduction_pix_indeces):
@@ -1770,7 +1769,7 @@ def run_trap_with_model_temporal_optimized(
         # Lightcurve model fitting planet at pixel
         model_for_pixel = model[:, reduction_pix_indeces[idx, 0], reduction_pix_indeces[idx, 1]]
 
-        if reduction_parameters.number_of_pca_regressors != 0:
+        if _n_pca != 0:
             model_matrix = np.vstack((constant_offset, model_for_pixel))
             A = np.hstack((B, model_matrix.T))
         else:
@@ -1827,7 +1826,7 @@ def run_trap_with_model_temporal_optimized(
         reduced_result=reduced_result,
         reduction_mask=None,
         residuals=residuals,
-        number_of_pca_regressors=reduction_parameters.number_of_pca_regressors,
+        number_of_pca_regressors=_n_pca,
         true_contrast=None,
         yx_center=None,
         signal_weights=signal_weights,
@@ -1854,6 +1853,7 @@ def prepare_for_cross_validation(data, yx_position_relative, yx_center):
 def temporal_pca_cross_validation(
         data, model, pa, reduction_parameters,
         reduction_mask,
+        runtime=None,
         test_size=0.2,
         split_iterations=250,
         number_of_components_to_test=np.arange(1, 40),
@@ -1972,8 +1972,9 @@ def temporal_pca_cross_validation(
                         design_matrix=A_train.T,
                         data=y_train,
                         inverse_covariance=inverse_covariance)
-                except:
-                    ipsh()
+                except np.linalg.LinAlgError:
+                    P = np.full(A.shape[1], np.nan)
+                    P_sigma_squared = np.full(A.shape[1], np.nan)
 
                 reconstructed_lightcurve = np.dot(A, P)
                 residuals.append(y_test - reconstructed_lightcurve[idx_test])
@@ -1997,39 +1998,3 @@ def temporal_pca_cross_validation(
     # np.argmin(np.abs(np.mean(wrong_in_sigma, axis=1)))
 
     return ncomp_pca_residuals, last_regressor_coefficient
-    # ipsh()
-    # best_number_of_components = number_of_components_to_test[np.argmin(score_robust, axis=0)]
-
-    # plt.plot(number_of_components_to_test, score)
-    # plt.show()
-    # except np.linalg.LinAlgError:
-    #     P = np.empty(A.shape[1])
-    #     P[:] = np.nan
-    #     P_sigma_squared = np.empty(A.shape[1])
-    #     P_sigma_squared[:] = np.nan
-
-    # if P[0] is not np.nan:
-    # else:
-    #     reconstructed_lightcurve = np.empty(ntime)
-    #     reconstructed_lightcurve[:] = np.nan
-
-    # fitted_model[idx] = reconstructed_lightcurve
-    # reduced_result[idx] = (P[-1], P_sigma_squared[-1])
-
-    # residuals = (data[:, reduction_mask].T - fitted_model)
-
-    # result = Result(
-    #     data=None,
-    #     model_cube=None,
-    #     noise_model_cube=None,
-    #     diagnostic_image=None,
-    #     reduced_result=reduced_result,
-    #     reduction_mask=None,
-    #     residuals=residuals,
-    #     number_of_pca_regressors=reduction_parameters.number_of_pca_regressors,
-    #     true_contrast=None,
-    #     yx_center=None,
-    #     compute_residual_correlation=reduction_parameters.compute_residual_correlation,
-    #     use_residual_correlation=reduction_parameters.use_residual_correlation)
-
-    # return result

@@ -5,6 +5,30 @@ This project adheres to [Keep a Changelog](https://keepachangelog.com/) and [Sem
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-07-03
+
+### Added
+- **Dataclass-based configuration system** – New parameter classes (`TrapConfig`, `TrapReductionConfig`, `DetectionParameters`, `InstrumentConfig`, `StellarParameters`, `TrapResources`, `ProcessingParameters`) replace the legacy `Reduction_parameters` object as the primary way to configure reductions and detection. `detection.py` and the reduction wrapper now consume these classes directly.
+- **Development environment** – Added `pixi.toml` for a reproducible Pixi-managed development environment.
+
+### Changed
+- **Internal cleanup** – Deduplicated detection-image population (`fill_detection_image`) and output-path construction (`OutputPaths`) in the reduction wrapper, and consolidated the `crop_box_*` helpers. No change to reduction results.
+- **Correlation output naming** – The `correlation_matrix_binned` output now carries a `_corr` infix, consistent with the other residual-correlation outputs (affects only runs with residual correlation enabled).
+
+### Deprecated
+- **Legacy parameter objects** – `Reduction_parameters` and the `TrapReductionConfig.to_reduction_parameters()` / `TrapConfig.get_reduction_parameters()` bridge methods now emit a `DeprecationWarning` and will be removed in a future release. Use `TrapReductionConfig` / `TrapConfig` directly.
+
+### Fixed
+- **Known-companion regressor exclusion** – Removed a stray assignment that discarded the computed known-companion mask, so `yx_known_companion_position` again excludes known companions from the regressor pool.
+- **Cross-validation robustness** – `temporal_pca_cross_validation` now fills failed solver fits with NaN instead of dropping into a debug shell.
+- **Latent `NameError`** – `run_trap_with_model_wavelength` now accepts the `runtime` argument it referenced.
+- **NumPy 2.0 compatibility** – Replaced the removed `np.histogram(normed=...)` argument with `density=...`.
+- **Docstring typo** – Corrected `constrast_curve_sigma` to `contrast_curve_sigma`.
+
+### Removed
+- **Dead code** – Removed concluded experiments and unreachable/commented-out blocks (eigendecomposition and timing benchmarks in `pca_regression`, a post-`return` block and hardcoded plot limits in `regression`).
+- **Unreleased Gaia coupling** – Removed the never-released `use_gaia_stellar_parameters` field from `DetectionParameters`; the stellar-parameter handover now lives entirely in the `spherical` wrapper.
+
 ## [1.2.1] - 2025-08-10
 
 ### Added
@@ -81,7 +105,8 @@ This project adheres to [Keep a Changelog](https://keepachangelog.com/) and [Sem
 ### Fixed
 - No known issues.
 
-[Unreleased]: https://github.com/m-samland/trap/compare/v1.2.1...HEAD 
+[Unreleased]: https://github.com/m-samland/trap/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/m-samland/trap/compare/v1.2.1...v1.3.0
 [1.2.1]: https://github.com/m-samland/trap/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/m-samland/trap/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/m-samland/trap/compare/v1.0.0...v1.1.0

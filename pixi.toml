@@ -1,0 +1,80 @@
+[workspace]
+name = "trap"
+description = "Detection of exoplanets in direct imaging data by causal regression of temporal systematics"
+channels = ["conda-forge"]
+platforms = ["linux-64", "linux-aarch64", "osx-arm64", "osx-64"]
+
+# ──────────────────────────────────────────────
+# Core dependencies (mirrors [project.dependencies] in pyproject.toml)
+# ──────────────────────────────────────────────
+[dependencies]
+python = ">=3.11,<3.14"
+numpy = ">=2,<3"
+scipy = "*"
+matplotlib = "*"
+numba = "*"
+pandas = "*"
+scikit-learn = "*"
+astropy = ">7.0"
+photutils = "*"
+seaborn = "*"
+tqdm = "*"
+bottleneck = "*"
+natsort = "*"
+dill = "*"
+cython = "*"
+
+# Editable install of the package itself
+[pypi-dependencies]
+trap = { path = ".", editable = true }
+ray = { version = ">=2.47.1", extras = ["default"] }
+species = { git = "https://github.com/tomasstolker/species" }
+
+# ──────────────────────────────────────────────
+# Feature: notebook
+# ──────────────────────────────────────────────
+[feature.notebook.dependencies]
+ipython = "*"
+jupyterlab = "*"
+ipywidgets = "*"
+ipympl = "*"
+
+# ──────────────────────────────────────────────
+# Feature: docs
+# ──────────────────────────────────────────────
+[feature.docs.dependencies]
+sphinx = "*"
+sphinx-automodapi = "*"
+numpydoc = "*"
+
+# ──────────────────────────────────────────────
+# Feature: test
+# ──────────────────────────────────────────────
+[feature.test.dependencies]
+pytest = "*"
+pytest-cov = "*"
+pytest-doctestplus = "*"
+codecov = "*"
+ruff = "*"
+
+# ──────────────────────────────────────────────
+# Environments
+# ──────────────────────────────────────────────
+[environments]
+default = { solve-group = "default" }
+notebook = { features = ["notebook"], solve-group = "default" }
+docs = { features = ["docs"], solve-group = "default" }
+test = { features = ["test"], solve-group = "default" }
+dev = { features = ["notebook", "test"], solve-group = "dev" }
+
+# ──────────────────────────────────────────────
+# Tasks
+# ──────────────────────────────────────────────
+[feature.test.tasks]
+test = "pytest"
+lint = "ruff check src/"
+format = "ruff format src/"
+format-check = "ruff format --check src/"
+
+[feature.docs.tasks]
+docs = "sphinx-build docs/ docs/_build"

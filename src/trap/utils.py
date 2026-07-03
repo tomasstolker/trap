@@ -88,46 +88,20 @@ class ProgressBar:
         """
         return self.progress_actor
 
-    def print_until_done(self, timeout: float = 30.0) -> None:
-        """Blocking call with timeout support.
+    def print_until_done(self) -> None:
+        """Blocking call.
 
         Do this after starting a series of remote Ray tasks, to which you've
         passed the actor handle. Each of them calls `update` on the actor.
         When the progress meter reaches 100%, this method returns.
-        
-        Parameters
-        ----------
-        timeout : float
-            Maximum time to wait for updates before giving up (seconds)
         """
         pbar = tqdm(desc=self.description, total=self.total)
-        import time
-        start_time = time.time()
-        
-        try:
-            while True:
-                try:
-                    # Add timeout to ray.get call
-                    delta, counter = ray.get(
-                        self.actor.wait_for_update.remote(), 
-                        timeout=min(timeout, timeout - (time.time() - start_time))
-                    )
-                    pbar.update(delta)
-                    if counter >= self.total:
-                        pbar.close()
-                        return
-                        
-                except ray.exceptions.GetTimeoutError:
-                    # Check if we've exceeded total timeout
-                    if time.time() - start_time > timeout:
-                        pbar.close()
-                        raise TimeoutError(f"Progress tracking timed out after {timeout} seconds")
-                    # Otherwise continue waiting
-                    continue
-                    
-        except Exception:
-            pbar.close()
-            raise
+        while True:
+            delta, counter = ray.get(self.actor.wait_for_update.remote())
+            pbar.update(delta)
+            if counter >= self.total:
+                pbar.close()
+                return
 
 
 def shuffle_and_equalize_relative_positions(
@@ -239,61 +213,35 @@ def resize_arr(arr, newdim):
                 dx1 - dx2:dx1 + dx2 + 1]
 
 
-def crop_box_from_4D_cube(flux_arr, boxsize, center_yx=None):
-    """Extract cropped area centered on given coordinates"""
-
+def _crop_box(flux_arr, boxsize, center_yx):
+    """Core crop logic operating on the last two axes."""
     if center_yx is None:
         dx1 = flux_arr.shape[-1] // 2
         dy1 = flux_arr.shape[-2] // 2
     else:
         dx1 = center_yx[1]
         dy1 = center_yx[0]
-
     dx2 = dy2 = boxsize // 2
-
     if boxsize % 2 == 0:
-        return flux_arr[:, :, int(dy1 - dy2):int(dy1 + dy2),
-                        int(dx1 - dx2):int(dx1 + dx2)]   
-    return flux_arr[:, :, int(dy1 - dy2):int(dy1 + dy2 + 1),
+        return flux_arr[..., int(dy1 - dy2):int(dy1 + dy2),
+                        int(dx1 - dx2):int(dx1 + dx2)]
+    return flux_arr[..., int(dy1 - dy2):int(dy1 + dy2 + 1),
                     int(dx1 - dx2):int(dx1 + dx2 + 1)]
+
+
+def crop_box_from_4D_cube(flux_arr, boxsize, center_yx=None):
+    """Extract cropped area centered on given coordinates"""
+    return _crop_box(flux_arr, boxsize, center_yx)
 
 
 def crop_box_from_3D_cube(flux_arr, boxsize, center_yx=None):
     """Extract cropped area centered on given coordinates"""
-
-    if center_yx is None:
-        dx1 = flux_arr.shape[-1] // 2
-        dy1 = flux_arr.shape[-2] // 2
-    else:
-        dx1 = center_yx[1]
-        dy1 = center_yx[0]
-
-    dx2 = dy2 = boxsize // 2
-
-    if boxsize % 2 == 0:
-        return flux_arr[:, int(dy1 - dy2):int(dy1 + dy2),
-                        int(dx1 - dx2):int(dx1 + dx2)]
-    return flux_arr[:, int(dy1 - dy2):int(dy1 + dy2 + 1),
-                    int(dx1 - dx2):int(dx1 + dx2 + 1)]
+    return _crop_box(flux_arr, boxsize, center_yx)
 
 
 def crop_box_from_image(flux_arr, boxsize, center_yx=None):
     """Extract cropped area centered on given coordinates"""
-
-    if center_yx is None:
-        dx1 = flux_arr.shape[-1] // 2
-        dy1 = flux_arr.shape[-2] // 2
-    else:
-        dx1 = center_yx[1]
-        dy1 = center_yx[0]
-
-    dx2 = dy2 = boxsize // 2
-
-    if boxsize % 2 == 0:
-        return flux_arr[int(dy1 - dy2):int(dy1 + dy2),
-                        int(dx1 - dx2):int(dx1 + dx2)]
-    return flux_arr[int(dy1 - dy2):int(dy1 + dy2 + 1),
-                    int(dx1 - dx2):int(dx1 + dx2 + 1)]
+    return _crop_box(flux_arr, boxsize, center_yx)
 
 
 def resize_image_cube(arr, new_dim):

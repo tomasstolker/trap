@@ -44,7 +44,7 @@ test = [
 ]
 all = [
     "ipython",
-    "notebook",
+    "jupyterlab",
     "ipywidgets",
     "ipympl",
 ]

@@ -18,6 +18,7 @@ The legacy Reduction_parameters class is still available but deprecated.
 
 from __future__ import annotations
 
+import multiprocessing
 from dataclasses import asdict, dataclass, field, replace
 from typing import Any, Dict, Optional, Tuple
 
@@ -328,7 +329,7 @@ class Reduction_parameters(object):
     contrast_curve : boolean
         Automatically generate contrast curve after reduction.
         Default is True.
-    constrast_curve_sigma : scalar
+    contrast_curve_sigma : scalar
         Defines the sigma of the contrast curve.
         Default is 5.
     normalization_width : integer
@@ -490,6 +491,14 @@ class Reduction_parameters(object):
             return_input_data=False,
             verbose=False,
             use_progress_bar=True,):
+
+        import warnings
+        warnings.warn(
+            "Reduction_parameters is deprecated and will be removed in a future release. "
+            "Use TrapReductionConfig instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
         self.search_region = search_region
         self.search_region_inner_bound = search_region_inner_bound
@@ -663,7 +672,6 @@ class DetectionParameters:
     detection_threshold: float = 5.0
     use_spectral_correlation: bool = False
     stellar_parameters: StellarParameters = field(default_factory=StellarParameters)
-    use_gaia_stellar_parameters: bool = True  # Auto-populate teff/logg/feh from Gaia columns in observation table
     search_radius: int = 11
     inner_mask_radius: int = 1
     good_fraction_threshold: float = 0.05
@@ -678,12 +686,13 @@ class DetectionParameters:
 
 # -------- reduction parameters wrapper --------------------------------------
 
-@dataclass(slots=True)
+@dataclass(slots=True, frozen=True)
 class TrapReductionConfig:
-    """Configuration wrapper for TRAP Reduction_parameters.
-    
-    This dataclass provides a configuration interface for the TRAP Reduction_parameters
-    while maintaining compatibility with the existing TRAP package interface.
+    """Immutable configuration for TRAP reduction parameters.
+
+    This frozen dataclass holds all user-provided reduction settings.
+    Use ``merge(**kw)`` to create a copy with selected fields overridden.
+    Pipeline-derived runtime values live in :class:`ReductionRuntimeState`.
     """
     # Search region parameters
     search_region: Optional[Any] = None  # Binary mask of relative position to search for planets
@@ -782,7 +791,19 @@ class TrapReductionConfig:
         return replace(self, **kw)
 
     def to_reduction_parameters(self) -> "Reduction_parameters":
-        """Convert to TRAP Reduction_parameters instance."""
+        """Convert to TRAP Reduction_parameters instance.
+
+        .. deprecated::
+            Use ``TrapReductionConfig`` directly. This method will be removed
+            in a future release.
+        """
+        import warnings
+        warnings.warn(
+            "TrapReductionConfig.to_reduction_parameters() is deprecated and will be removed "
+            "in a future release. Use TrapReductionConfig directly.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         params_dict = asdict(self)
         
         # Filter out None values, but keep explicit None defaults where needed
@@ -800,6 +821,238 @@ class TrapReductionConfig:
         return Reduction_parameters(**filtered_params)
 
 
+# -------- runtime state (derived from config + data + instrument) -----------
+
+@dataclass(slots=True)
+class ReductionRuntimeState:
+    """Derived runtime values computed from TrapReductionConfig + Instrument + data.
+
+    Built once per ``run_complete_reduction`` call. Per-wavelength/component
+    fields are updated via ``for_iteration()`` which returns a new instance.
+    """
+
+    # --- Category A: normalized inputs ---
+    yx_anamorphism: np.ndarray
+    yx_known_companion_position: Optional[np.ndarray] = None   # 2D (N,2) or None
+    known_companion_contrast: Optional[np.ndarray] = None       # 2D (n_wave, N) or None
+
+    # --- Category B: derived once ---
+    search_region_outer_bound: int = 85
+    data_crop_size: Optional[int] = None
+    search_region: Optional[np.ndarray] = None       # binary mask
+    ncpus: int = 4
+
+    # --- Category C: per iteration (wavelength x component) ---
+    number_of_pca_regressors: int = 20
+    temporal_components_fraction: float = 0.15
+    fwhm: float = 4.0
+    reduction_mask_psf_size: int = 19
+    signal_mask_psf_size: int = 21
+
+    def for_iteration(
+        self, *,
+        number_of_pca_regressors: int,
+        temporal_components_fraction: float,
+        fwhm: float,
+        reduction_mask_psf_size: int,
+        signal_mask_psf_size: int,
+    ) -> ReductionRuntimeState:
+        """Return a new instance with per-iteration fields updated."""
+        return replace(
+            self,
+            number_of_pca_regressors=number_of_pca_regressors,
+            temporal_components_fraction=temporal_components_fraction,
+            fwhm=fwhm,
+            reduction_mask_psf_size=reduction_mask_psf_size,
+            signal_mask_psf_size=signal_mask_psf_size,
+        )
+
+
+def build_runtime_state(
+    config: TrapReductionConfig,
+    data_shape: tuple,
+    stamp_sizes: np.ndarray,
+    stamp_sizes_reduction: np.ndarray,
+    max_shift: float,
+) -> ReductionRuntimeState:
+    """Compute all derived values from user config + data properties.
+
+    Encapsulates the normalization and derivation logic that was previously
+    scattered through ``run_complete_reduction`` as mutations on
+    ``reduction_parameters``.
+
+    Parameters
+    ----------
+    config : TrapReductionConfig
+        Immutable user configuration.
+    data_shape : tuple
+        Shape of data_full: ``(n_wave, n_time, ny, nx)``.
+    stamp_sizes : np.ndarray
+        Per-wavelength signal mask stamp sizes.
+    stamp_sizes_reduction : np.ndarray
+        Per-wavelength reduction mask stamp sizes.
+    max_shift : float
+        Maximum center shift across frames.
+
+    Returns
+    -------
+    ReductionRuntimeState
+    """
+    from trap import regressor_selection  # local import to avoid circular
+
+    # --- Category A: normalize inputs ---
+    yx_anamorphism = np.array(config.yx_anamorphism)
+
+    yx_known_companion_position = None
+    if config.yx_known_companion_position is not None:
+        yx_known_companion_position = np.array(config.yx_known_companion_position)
+        if yx_known_companion_position.ndim == 1:
+            yx_known_companion_position = np.expand_dims(
+                yx_known_companion_position, axis=0
+            )
+        elif yx_known_companion_position.ndim > 2:
+            raise ValueError(
+                "Dimensionality of known companion position array too large."
+            )
+
+    known_companion_contrast = None
+    if (
+        config.known_companion_contrast is not None
+        and config.remove_known_companions
+    ):
+        assert (
+            yx_known_companion_position is not None
+        ), "No position for known companion given."
+
+        known_companion_contrast = np.atleast_1d(
+            np.array(config.known_companion_contrast)
+        )
+        number_of_wavelengths = data_shape[0]
+        number_of_companions = yx_known_companion_position.shape[0]
+
+        assert (
+            known_companion_contrast.shape[-1] == number_of_companions
+        ), "The same number of known companion position and contrasts need to be provided."
+
+        if known_companion_contrast.ndim == 1 and number_of_wavelengths == 1:
+            known_companion_contrast = np.expand_dims(
+                known_companion_contrast, axis=0
+            )
+        elif known_companion_contrast.ndim == 1 and number_of_wavelengths > 1:
+            raise ValueError(
+                "For multi-wavelength data, a known contrast has to be defined "
+                "for every wavelength."
+            )
+        elif known_companion_contrast.ndim > 2:
+            raise ValueError(
+                "Dimensionality of known companion contrast array too large."
+            )
+
+    # --- Category B: derived once ---
+    search_region_outer_bound = config.search_region_outer_bound
+    if config.reduce_single_position and config.guess_position is not None:
+        guess_position_separation = np.sqrt(
+            config.guess_position[0] ** 2 + config.guess_position[1] ** 2
+        )
+        print("Adjusting outer bound to fit guess position")
+        search_region_outer_bound = int(np.ceil(guess_position_separation) + 5)
+
+    data_crop_size = config.data_crop_size
+    if config.data_auto_crop:
+        data_crop_size = np.ceil(
+            search_region_outer_bound * 2
+            + np.max(stamp_sizes) * np.sqrt(2)
+            + max_shift
+        )
+        if config.add_radial_regressors:
+            # NOTE: Hardcoded binary dilation used right now.
+            data_crop_size += 14
+        # Round up to odd number
+        data_crop_size = int(data_crop_size // 2 * 2 + 1)
+
+        if data_crop_size > data_shape[-1]:
+            raise ValueError(
+                f"Data crop size {data_crop_size} is larger than input image "
+                f"size: {data_shape[-1]}"
+            )
+        print(f"Auto crop size cropped data to: {data_crop_size}")
+        yx_dim = (data_crop_size, data_crop_size)
+    else:
+        if config.search_region is None:
+            if config.data_crop_size is None:
+                yx_dim = (data_shape[-2], data_shape[-1])
+            else:
+                yx_dim = (config.data_crop_size, config.data_crop_size)
+        else:
+            yx_dim = (
+                config.search_region.shape[-2],
+                config.search_region.shape[-1],
+            )
+
+    search_region = config.search_region
+    if search_region is None:
+        search_region = regressor_selection.make_annulus_mask(
+            config.search_region_inner_bound,
+            search_region_outer_bound,
+            yx_dim=yx_dim,
+            oversampling=config.oversampling,
+            yx_center=None,
+        )
+
+    ncpus = config.ncpus
+    if ncpus is None:
+        ncpus = multiprocessing.cpu_count()
+
+    return ReductionRuntimeState(
+        yx_anamorphism=yx_anamorphism,
+        yx_known_companion_position=yx_known_companion_position,
+        known_companion_contrast=known_companion_contrast,
+        search_region_outer_bound=search_region_outer_bound,
+        data_crop_size=data_crop_size,
+        search_region=search_region,
+        ncpus=ncpus,
+        # Category C: initial values (will be overwritten by for_iteration)
+        number_of_pca_regressors=config.number_of_pca_regressors,
+        temporal_components_fraction=0.0,
+        fwhm=0.0,
+        reduction_mask_psf_size=config.reduction_mask_psf_size,
+        signal_mask_psf_size=config.signal_mask_psf_size,
+    )
+
+
+# -------- conversion helper -------------------------------------------------
+
+def _to_reduction_config(reduction_parameters) -> "TrapReductionConfig":
+    """Convert any accepted config type to TrapReductionConfig.
+
+    Accepts TrapConfig, TrapReductionConfig, or legacy Reduction_parameters.
+    Always returns a frozen TrapReductionConfig instance.
+    """
+    import warnings
+    if isinstance(reduction_parameters, TrapReductionConfig):
+        return reduction_parameters
+    if hasattr(reduction_parameters, 'get_reduction_parameters'):
+        # TrapConfig — extract TrapReductionConfig directly
+        return reduction_parameters.reduction
+    if isinstance(reduction_parameters, Reduction_parameters):
+        # Legacy Reduction_parameters — convert field-by-field
+        warnings.warn(
+            "Passing Reduction_parameters is deprecated. Use TrapReductionConfig instead.",
+            DeprecationWarning,
+            stacklevel=3,
+        )
+        fields = {f.name for f in TrapReductionConfig.__dataclass_fields__.values()}
+        kwargs = {}
+        for name in fields:
+            if hasattr(reduction_parameters, name):
+                kwargs[name] = getattr(reduction_parameters, name)
+        return TrapReductionConfig(**kwargs)
+    raise TypeError(
+        f"Expected TrapReductionConfig, TrapConfig, or Reduction_parameters, "
+        f"got {type(reduction_parameters).__name__}"
+    )
+
+
 # -------- resources ---------------------------------------------------------
 
 @dataclass(slots=True)
@@ -808,9 +1061,12 @@ class TrapResources:
     ncpu_reduction: int = 1
     ncpu_detection: int = 1
 
-    def apply(self, reduction_config: TrapReductionConfig):
-        """Apply resource settings to reduction configuration."""
-        reduction_config.ncpus = self.ncpu_reduction
+    def apply(self, reduction_config: TrapReductionConfig) -> TrapReductionConfig:
+        """Apply resource settings to reduction configuration.
+
+        Returns a new config with ncpus set (frozen config cannot be mutated).
+        """
+        return reduction_config.merge(ncpus=self.ncpu_reduction)
 
 
 # -------- wavelength and processing parameters ------------------------------
@@ -851,10 +1107,23 @@ class TrapConfig:
 
     def apply_resources(self):
         """Apply resource configuration to all sub-configs."""
-        self.resources.apply(self.reduction)
+        self.reduction = self.resources.apply(self.reduction)
 
     def get_reduction_parameters(self) -> "Reduction_parameters":
-        """Get TRAP Reduction_parameters instance with current configuration."""
+        """Get TRAP Reduction_parameters instance with current configuration.
+
+        .. deprecated::
+            Access ``TrapConfig.reduction`` (a ``TrapReductionConfig``) directly
+            and pass it to ``run_complete_reduction``. This method will be removed
+            in a future release.
+        """
+        import warnings
+        warnings.warn(
+            "TrapConfig.get_reduction_parameters() is deprecated and will be removed "
+            "in a future release. Use TrapConfig.reduction (a TrapReductionConfig) directly.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return self.reduction.to_reduction_parameters()
 
     def get_stellar_parameters(self) -> Dict[str, float]:
@@ -888,19 +1157,18 @@ def default_trap_config() -> TrapConfig:
 
 def trap_config_for_ifs() -> TrapConfig:
     """Create TRAP configuration optimized for IFS observations."""
-    config = TrapConfig()
-    
-    # Set IFS-specific wavelength range (skip first/last due to low S/N)
-    config.processing.wavelength_indices = range(1, 38)
-    
-    # IFS-specific reduction parameters
-    config.reduction.search_region_outer_bound = 81  # appropriate for IFS field
-    config.reduction.temporal_model = True
-    config.reduction.spatial_model = False  # temporal model typically sufficient for IFS
-    config.reduction.right_handed = False  # Common for many IFS instruments
-    config.reduction.search_region_inner_bound = 1  # Skip inner region
-    # config.reduction.yx_anamorphism = [1.0062, 1.]
-    
+    config = TrapConfig(
+        reduction=TrapReductionConfig(
+            search_region_outer_bound=81,
+            temporal_model=True,
+            spatial_model=False,
+            right_handed=False,
+            search_region_inner_bound=1,
+        ),
+        processing=ProcessingParameters(
+            wavelength_indices=range(1, 38),
+        ),
+    )
     return config
 
 
