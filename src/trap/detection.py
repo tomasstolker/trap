@@ -3119,6 +3119,24 @@ class DetectionAnalysis(object):
                     model="bt-nextgen", wavel_range=(0.85, 3.6)
                 )
 
+                # Snap stellar parameters to the model-grid boundaries so values
+                # outside the grid (e.g. sub-solar [Fe/H] on this solar-only grid,
+                # or a log g past the grid edge) clamp to the nearest boundary
+                # instead of raising in species' get_model.
+                stellar_parameters = dict(stellar_parameters)
+                for param, (low, high) in star_read_model.get_bounds().items():
+                    value = stellar_parameters.get(param)
+                    if value is None:
+                        continue
+                    clamped = min(max(value, low), high)
+                    if clamped != value:
+                        warnings.warn(
+                            f"Stellar parameter '{param}'={value:.4g} is outside the "
+                            f"bt-nextgen grid [{low:.4g}, {high:.4g}]; clamping to "
+                            f"{clamped:.4g} for template matching."
+                        )
+                        stellar_parameters[param] = clamped
+
                 stellar_modelbox = star_read_model.get_model(
                     model_param=stellar_parameters
                 )
