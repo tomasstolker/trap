@@ -12,6 +12,7 @@ import multiprocessing
 import os
 from collections import OrderedDict
 
+import astropy.units as u
 import numpy as np
 import ray
 from astropy.io import fits
@@ -129,6 +130,13 @@ def trap_one_position(
     planet_absolute_yx_pos = image_coordinates.relative_yx_to_absolute_yx(
         signal_position, yx_center
     )
+
+    if runtime.coronagraph_transmission_pix is not None:
+        separation_pix = np.hypot(signal_position[0], signal_position[1])
+        # amplitude_modulation is shared read-only via ray.put: copy, never mutate.
+        amplitude_modulation = amplitude_modulation * makesource.coronagraph_throughput_factor(
+            separation_pix, runtime.coronagraph_transmission_pix
+        )
 
     injected_model_cube = np.zeros_like(data)
     injected_model_cube = makesource.inject_model_into_data(
@@ -1316,6 +1324,7 @@ def run_complete_reduction(
         stamp_sizes=stamp_sizes,
         stamp_sizes_reduction=stamp_sizes_reduction,
         max_shift=max_shift,
+        mas_per_pixel=(1 * u.pixel).to(u.mas, equivalencies=instrument.pixel_scale).value,
     )
     data_crop_size = runtime.data_crop_size
 

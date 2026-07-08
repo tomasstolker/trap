@@ -763,6 +763,7 @@ class TrapReductionConfig:
     threshold_pixel_by_contribution: float = 0.0
     target_pix_mask_radius: Optional[float] = None
     use_relative_position: bool = False
+    coronagraph_transmission: Optional[Any] = None
     
     # Regressor selection
     annulus_width: int = 5
@@ -805,7 +806,8 @@ class TrapReductionConfig:
             stacklevel=2,
         )
         params_dict = asdict(self)
-        
+        params_dict.pop("coronagraph_transmission", None)
+
         # Filter out None values, but keep explicit None defaults where needed
         filtered_params = {}
         for k, v in params_dict.items():
@@ -841,6 +843,7 @@ class ReductionRuntimeState:
     data_crop_size: Optional[int] = None
     search_region: Optional[np.ndarray] = None       # binary mask
     ncpus: int = 4
+    coronagraph_transmission_pix: Optional[np.ndarray] = None
 
     # --- Category C: per iteration (wavelength x component) ---
     number_of_pca_regressors: int = 20
@@ -874,6 +877,7 @@ def build_runtime_state(
     stamp_sizes: np.ndarray,
     stamp_sizes_reduction: np.ndarray,
     max_shift: float,
+    mas_per_pixel: Optional[float] = None,
 ) -> ReductionRuntimeState:
     """Compute all derived values from user config + data properties.
 
@@ -899,6 +903,19 @@ def build_runtime_state(
     ReductionRuntimeState
     """
     from trap import regressor_selection  # local import to avoid circular
+
+    coronagraph_transmission_pix = None
+    transmission = getattr(config, "coronagraph_transmission", None)
+    if transmission is not None:
+        if mas_per_pixel is None:
+            raise ValueError(
+                "mas_per_pixel is required to use coronagraph_transmission."
+            )
+        from trap.makesource import coronagraph_transmission_to_pixels
+
+        coronagraph_transmission_pix = coronagraph_transmission_to_pixels(
+            transmission, mas_per_pixel
+        )
 
     # --- Category A: normalize inputs ---
     yx_anamorphism = np.array(config.yx_anamorphism)
@@ -1011,6 +1028,7 @@ def build_runtime_state(
         data_crop_size=data_crop_size,
         search_region=search_region,
         ncpus=ncpus,
+        coronagraph_transmission_pix=coronagraph_transmission_pix,
         # Category C: initial values (will be overwritten by for_iteration)
         number_of_pca_regressors=config.number_of_pca_regressors,
         temporal_components_fraction=0.0,

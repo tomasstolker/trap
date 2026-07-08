@@ -5,6 +5,12 @@ This project adheres to [Keep a Changelog](https://keepachangelog.com/) and [Sem
 
 ## [Unreleased]
 
+### Added
+- Optional coronagraph throughput correction: pass a `(separation_mas, throughput)`
+  table via `TrapReductionConfig.coronagraph_transmission` to attenuate the
+  forward model by the separation-dependent coronagraph transmission, correcting
+  underestimated contrasts at small separations (#31).
+
 ### Fixed
 - **Out-of-grid stellar parameters no longer abort template matching** – `add_default_templates` built the stellar template from the solar-only `bt-nextgen` grid but passed the requested `stellar_parameters` straight to `species`' `get_model`, so a sub-solar `[Fe/H]` (or an out-of-range Teff/log g) raised `ValueError: … smaller than the lower boundary of the model grid`. Values are now clamped to the grid boundaries (via `ReadModel.get_bounds()`) before `get_model`, snapping to the nearest edge with a `warnings.warn`, so any caller's stellar parameters degrade gracefully instead of crashing.
 
